@@ -1,0 +1,16 @@
+# R / RStudio
+.Rproj.user/
+.Rhistory
+.RData
+.Ruserdata
+
+# derived geodata, all of it rebuilt by the scripts
+data/
+*.tif
+*.vrt
+*.gpkg
+*.webp
+*.aux.xml
+
+# local assistant notes
+CLAUDE.md
