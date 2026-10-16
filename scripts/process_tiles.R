@@ -39,10 +39,9 @@ p <- list(
   res_m         = 1,      # m, DOM1's native grid; bDOM is resampled onto it
   veg_months    = 5:10,   # vegetation period, bDOM only
   min_cover     = 0.05,   # smallest share of the tile an epoch must reach
-  loss_drop     = -5,     # m, drop below the stand's own median counted as loss
+  loss_drop     = -5,     # m, lasting drop in canopy height counted as loss
   open_radius   = 1.5,    # m, morphological opening, drops speckle
   min_gap       = 20,     # m², smallest loss patch kept
-  deshift       = TRUE,   # level each step on its median, see R/detection.R
   buffer        = 50,     # m, read past the tile edge, see R/tile_loss.R
   canopy_height = 5)      # m, canopy vs. open
 n_workers <- 8            # parallel tiles; 1 runs in this session, for debugging

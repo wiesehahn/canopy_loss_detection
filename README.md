@@ -9,12 +9,15 @@ years. The same functions are sourced by
 plot circles.
 
 All geodata is EPSG:25832. Run everything from the project root with R ≥ 4.5,
-`terra`, `sf` and [`rvtr`](https://github.com/wiesehahn/rvtr).
+`terra`, `sf` and [`rvtr`](https://github.com/wiesehahn/rvtr) (87afb2c or later,
+for the `method` argument of `rvt_data_lgln()`).
 
 ## Method
 
 LGLN surfaces are fetched with `rvtr::rvt_data_lgln()`. They are streamed, not
-downloaded, and land on one 1 m grid.
+downloaded, and land on one 1 m grid. bDOM20 is taken as the highest of its
+20 cm pixels in each 1 m cell, as the lidar DSM records the highest return.
+Averaged, it sinks into the gaps between crowns and reads them as lost.
 
 1. **Choosing the epochs** ([`R/epochs.R`](R/epochs.R)):
    - Every DOM1 year counts.
@@ -28,15 +31,17 @@ downloaded, and land on one 1 m grid.
 2. **Differencing** ([`R/detection.R`](R/detection.R)): consecutive epochs are
    differenced. Where an epoch has no data, the last known height is carried
    forward.
-3. **Levelling.** Each step is levelled on its own median. Lidar and
-   photogrammetry put the canopy top at different heights, so without this every
-   step carries an offset before anything has changed.
-4. **What counts as a loss:**
-   - The cell drops more than 5 m below what the rest of the grid did.
+3. **What counts as a loss:**
+   - The cell's surface drops by more than 5 m, as measured. The steps are not
+     levelled against each other: levelling made no measurable difference
+     against a later lidar survey, and it made a cell's result depend on the
+     rest of the grid.
+   - The drop is absolute, not a share of the stand's height, so a tree lost
+     over a lower canopy layer still counts.
    - The drop has to last: the cell stays below its running floor in every
      later epoch. That separates a real cut from a bDOM that missed the canopy
      for one year.
-5. **Cleaning.** An opening with a 1.5 m radius removes anything narrower than
+4. **Cleaning.** An opening with a 1.5 m radius removes anything narrower than
    about 3 m, and patches under 20 m² are dropped. Each loss is dated to the
    epoch it first appears in.
 
@@ -73,19 +78,14 @@ Only `observed` tells those apart, and every share is taken against it.
 
 ## Worth knowing
 
-- **The levelling is under revision.** Each step is levelled on the median of
-  the whole (buffered) tile. A tile that is mostly farmland is levelled on the
-  fields, and neighbouring tiles can be levelled very differently: in the
-  pilot, the 2013→2018 lidar step was levelled by +2.1 m in one tile and
-  +0.0 m in the tile next to it. Tiles processed before the revision will have
-  to be run again.
-- **Lidar-to-bDOM steps are less reliable than lidar-to-lidar ones.** Levelling
-  removes the constant part of the offset between the two, not the part that
-  varies across the tile.
+- **Lidar-to-bDOM steps are less reliable than lidar-to-lidar ones.** The two
+  put the canopy top up to a metre or two apart, and an early-May bDOM can fall
+  through broadleaf crowns that are not yet in full leaf.
 - **A bad last epoch can't be caught.** The "loss must last" rule works by
   contradiction from later epochs, and the last one has none.
 - **Run time.** In the pilot each tile took about 30 s, about 4.3 s per tile
-  with 8 workers. The 43,353 comparable tiles would take roughly two days at
-  that rate.
+  with 8 workers, before bDOM was read at native resolution for the maximum.
+  That made the detection about three times slower per tile in testing; the
+  pilot is to be re-timed.
 - LGLN open data: © GeoBasis-DE/LGLN, CC BY 4.0. Add ", Daten geändert" when
   publishing anything derived from it.

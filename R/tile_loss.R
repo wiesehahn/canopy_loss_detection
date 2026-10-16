@@ -14,9 +14,8 @@
 #     mosaic would show the tile grid as seams.
 #
 # `p` holds the detection parameters, as the scripts' config blocks set them:
-# res_m, veg_months, min_cover, loss_drop, open_radius, min_gap, deshift,
-# buffer. epochs.R, detection.R and tiles.R have to be sourced, terra and rvtr
-# loaded.
+# res_m, veg_months, min_cover, loss_drop, open_radius, min_gap and buffer.
+# epochs.R, detection.R and tiles.R have to be sourced, terra and rvtr loaded.
 
 # A list of:
 #   ep     the tile's epoch table, `used` and `reason` filled in, as
@@ -42,7 +41,7 @@ tile_loss <- function(tile_id, p) {
 
   grid <- tile_grid(tile_id, p$buffer, p$res_m)
   srf  <- surfaces(grid, used)
-  d    <- canopy_steps(srf, p$deshift)
+  d    <- canopy_steps(srf)
   tile <- tile_ext(tile_id)
   seen <- crop(observed(d), tile)
 

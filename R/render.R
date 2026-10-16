@@ -3,6 +3,18 @@
 # whenever they are given the same year_span. terra and rvtr are the caller's
 # to load.
 
+# The surface a tile's losses are drawn over: its first DOM1, so every gap
+# reads against the stand it was cut out of. Its holes, and the part of the
+# tile it does not reach, are closed from the epochs, oldest first. `tl` is
+# what tile_loss() returns.
+first_dom1 <- function(tl) {
+  ep <- tl$ep
+  dsm_years <- ep$year[ep$product == "dsm" & ep$coverage > 0]
+  if (!length(dsm_years)) return(Reduce(cover, as.list(tl$srf)))
+  first <- rast(rvt_data_lgln(tl$grid, product = "dsm", year = min(dsm_years)))
+  Reduce(cover, as.list(tl$srf), init = first)
+}
+
 # The loss years over a hillshade of `dsm`, written to `out_path`. The colour of
 # a year is fixed by `year_span` rather than by the years this place happens to
 # hold, so the same colour means the same year in every image. Codes rather

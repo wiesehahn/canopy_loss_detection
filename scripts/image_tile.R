@@ -21,9 +21,6 @@
 #     losses drawn over it.
 #   - The colour ramp starts in 2010, the first DOM1 year LGLN holds, rather
 #     than 2013, so a colour here is not the same year as in the plot images.
-#   - `deshift` levels every step on the median of the whole (buffered) tile.
-#     A tile that is mostly field is levelled on the field, so read a tile with
-#     little forest in it with more care.
 #
 # data/lgln_coverage.gpkg (get_lgln_coverage.R) says beforehand which tiles
 # have two epochs or more to compare.
@@ -39,10 +36,9 @@ p <- list(
   res_m       = 1,      # m, DOM1's native grid; bDOM is resampled onto it
   veg_months  = 5:10,   # vegetation period, bDOM only
   min_cover   = 0.05,   # smallest share of the tile an epoch must reach
-  loss_drop   = -5,     # m, drop below the stand's own median counted as loss
+  loss_drop   = -5,     # m, lasting drop in canopy height counted as loss
   open_radius = 1.5,    # m, morphological opening, drops speckle
   min_gap     = 20,     # m², smallest loss patch kept
-  deshift     = TRUE,   # level each step on its median, see R/detection.R
   buffer      = 50)     # m, read past the tile edge, see R/tile_loss.R
 
 args <- commandArgs(trailingOnly = TRUE)
@@ -71,17 +67,5 @@ outside <- unlist(global(tl$year < year_span[1] | tl$year > year_span[2], "sum",
 if (outside > 0)
   message("  ", outside, " loss cells dated outside year_span, not drawn")
 
-# The first DOM1 for the shading, so every gap reads against the stand it was
-# cut out of. Its holes, and the part of the tile it does not reach, are closed
-# from the epochs, oldest first.
-ep <- tl$ep
-dsm_years <- ep$year[ep$product == "dsm" & ep$coverage > 0]
-if (length(dsm_years)) {
-  shade_dsm <- rast(rvt_data_lgln(tl$grid, product = "dsm", year = min(dsm_years)))
-  shade_dsm <- Reduce(cover, as.list(tl$srf), init = shade_dsm)
-} else {
-  shade_dsm <- Reduce(cover, as.list(tl$srf))
-}
-
-render_loss(tl$year, crop(shade_dsm, tile_ext(tile_id)), out_path, year_span)
+render_loss(tl$year, crop(first_dom1(tl), tile_ext(tile_id)), out_path, year_span)
 message("written to ", normalizePath(out_path))

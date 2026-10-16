@@ -38,7 +38,7 @@ write_grid <- function(dsm, res_m) {
 # the part it does reach. A plot sitting on a tile boundary whose two sides were
 # flown in different years is the usual cause, and throwing out both halves left
 # those plots with a single epoch and nothing to compare at all. `min_coverage`
-# only drops slivers too small to estimate the step's median offset from.
+# only drops slivers too small to say anything about the grid.
 #
 # bDOM is judged on both dates, not just one: rvt_data_lgln() gives each tile
 # its own latest flight within the year it is asked for, so a single leaf-off
