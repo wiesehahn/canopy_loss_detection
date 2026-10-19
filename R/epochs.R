@@ -37,16 +37,16 @@ write_grid <- function(dsm, res_m) {
 # "this epoch has nothing to say here", so the year still dates the losses in
 # the part it does reach. A plot sitting on a tile boundary whose two sides were
 # flown in different years is the usual cause, and throwing out both halves left
-# those plots with a single epoch and nothing to compare at all. `min_coverage`
+# those plots with a single epoch and nothing to compare at all. `min_cover`
 # only drops slivers too small to say anything about the grid.
 #
 # bDOM is judged on both dates, not just one: rvt_data_lgln() gives each tile
 # its own latest flight within the year it is asked for, so a single leaf-off
 # tile in an otherwise summer year would contaminate the epoch.
-lgln_epochs <- function(grid, veg_months, min_coverage = 0.05) {
+lgln_epochs <- function(grid, veg_months, min_cover = 0.05) {
   y <- rvt_data_lgln_years(grid, product = c("dsm", "bdom"))
   in_veg <- function(d) as.integer(substr(d, 6, 7)) %in% veg_months
-  enough <- y$coverage >= min_coverage
+  enough <- y$coverage >= min_cover
   seasonal <- y$product == "dsm" | (in_veg(y$first_date) & in_veg(y$last_date))
   y$used <- enough & seasonal
 

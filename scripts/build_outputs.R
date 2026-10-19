@@ -10,8 +10,8 @@
 #                  coverage columns, and for every measured tile the areas
 #                  from loss_metrics() (R/metrics.R) and the loss per year as
 #                  loss_<year>_m2. A tile with no raster keeps NA and `reason`
-#                  says why: not comparable, not processed yet, or what
-#                  stopped it.
+#                  says why: too few epochs, no DGM1, not processed yet, or
+#                  what stopped it.
 #     tile_epochs  every tile's epoch table, bound together.
 #
 # Reads only what is on disk, nothing remote.
@@ -64,6 +64,7 @@ tiles <- merge(tiles, measured, by = "tile_id", all.x = TRUE)
 tiles <- merge(tiles, stopped, by = "tile_id", all.x = TRUE)
 tiles$reason[is.na(tiles$reason)] <- ""
 tiles$reason[!tiles$comparable] <- "fewer than two epochs in the tile index"
+tiles$reason[!tiles$dgm1] <- "no DGM1 terrain model"
 tiles$reason[tiles$reason == "" & is.na(tiles$observed_m2)] <- "not processed yet"
 
 num <- vapply(st_drop_geometry(tiles), is.double, TRUE)

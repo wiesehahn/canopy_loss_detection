@@ -6,7 +6,8 @@
 #
 # The source is LGLN's own tile index, one GeoJSON per product with a feature
 # per tile and flight, so a tile flown in five years appears five times. It
-# holds the full history, not only the latest flight.
+# holds the full history, not only the latest flight. The DGM1 index is read
+# only to say which tiles have a terrain model.
 #
 # Two layers in `out_file`:
 #
@@ -23,12 +24,14 @@
 # will accept for a plot, not the same answer.
 library(sf)
 
-veg_months <- 5:10  # vegetation period, bDOM only, as in process_tiles.R
+source("R/params.R")
+veg_months <- detection_params$veg_months  # vegetation period, bDOM only
 out_file   <- "data/lgln_coverage.gpkg"
 
 index_url <- c(
   dom1 = "https://arcgis-geojson.s3.eu-de.cloud-object-storage.appdomain.cloud/dom1/lgln-opengeodata-dom1.geojson",
   bdom = "https://arcgis-geojson.s3.eu-de.cloud-object-storage.appdomain.cloud/bdom20/lgln-opengeodata-bdom20.geojson")
+dgm1_url <- "https://arcgis-geojson.s3.eu-de.cloud-object-storage.appdomain.cloud/dgm1/lgln-opengeodata-dgm1.geojson"
 url_field <- c(dom1 = "dom1", bdom = "bdom")
 
 read_index <- function(product) {
@@ -95,9 +98,16 @@ tiles$span_years  <- tiles$last_epoch - tiles$first_epoch
 # Longest stretch between two epochs - how long a loss can go undated within.
 tiles$max_gap     <- vapply(ep, \(v) if (length(v) > 1) max(diff(v)) else NA_integer_, 1L)
 
+# Whether LGLN has a terrain model (DGM1) for the tile. The starting canopy is
+# measured over it, so a tile without one - mostly coast and border - is not
+# processed.
+message("reading dgm1 index")
+dgm1_ids <- st_drop_geometry(st_read(paste0("/vsicurl/", dgm1_url), quiet = TRUE))$tile_id
+tiles$dgm1 <- tiles$tile_id %in% dgm1_ids
+
 # Whether the change detection can run here at all, and if so whether it can
 # rest on lidar alone, which differences more reliably than lidar to bDOM.
-tiles$comparable <- tiles$n_epochs >= 2
+tiles$comparable <- tiles$n_epochs >= 2 & tiles$dgm1
 tiles$lidar_only <- tiles$dom1_n >= 2
 
 st_geometry(tiles) <- "geom"
@@ -107,6 +117,7 @@ if (file.exists(out_file)) file.remove(out_file)
 st_write(tiles, out_file, layer = "tiles", quiet = TRUE)
 st_write(flights, out_file, layer = "flights", append = TRUE, quiet = TRUE)
 
-message(nrow(tiles), " tiles, ", sum(tiles$comparable), " with two or more epochs, ",
+message(nrow(tiles), " tiles, ", sum(tiles$n_epochs >= 2), " with two or more epochs, ",
+        sum(tiles$comparable), " of them with DGM1 (comparable), ",
         sum(tiles$lidar_only), " with two or more lidar years")
 print(table(n_epochs = tiles$n_epochs))

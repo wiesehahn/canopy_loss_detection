@@ -13,9 +13,9 @@
 #     by the boundary would be dropped on both sides, or kept on one, and the
 #     mosaic would show the tile grid as seams.
 #
-# `p` holds the detection parameters, as the scripts' config blocks set them:
-# res_m, veg_months, min_cover, loss_drop, open_radius, min_gap and buffer.
-# epochs.R, detection.R and tiles.R have to be sourced, terra and rvtr loaded.
+# `p` holds the detection parameters, as detection_params (R/params.R) sets
+# them. epochs.R, detection.R and tiles.R have to be sourced, terra and rvtr
+# loaded.
 
 # A list of:
 #   ep     the tile's epoch table, `used` and `reason` filled in, as
@@ -51,7 +51,8 @@ tile_loss <- function(tile_id, p) {
   if (unlist(global(seen, "max", na.rm = TRUE)) == 0)
     return(unusable("no epoch overlaps another"))
 
-  year <- loss_year(d, used$year, p$loss_drop, p$open_radius, p$min_gap) |>
+  year <- loss_year(d, used$year, p$loss_drop, p$open_radius, p$min_gap,
+                    p$regrowth) |>
     crop(tile)
   list(ep = ep, year = year, seen = seen, grid = grid, srf = srf)
 }

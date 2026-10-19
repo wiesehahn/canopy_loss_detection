@@ -22,10 +22,11 @@
 # past its edge.
 #
 # Tiles come from data/lgln_coverage.gpkg (get_lgln_coverage.R), `comparable`
-# ones only. Narrow them with `bbox` or `tile_ids` for a pilot. Every tile is
-# read remotely, nothing is downloaded, so the run is bound by the network and
-# `n_workers` is worth tuning on a pilot. build_outputs.R turns the tiles into
-# a mosaic and a table.
+# ones only: two epochs or more, and a DGM1 for the starting canopy. Narrow
+# them with `bbox` or `tile_ids` for a pilot. Every tile is read remotely,
+# nothing is downloaded, so the run is bound partly by the network; beyond
+# about 12 workers it got no faster in testing. build_outputs.R turns the tiles
+# into a mosaic and a table.
 #
 # Run from the project root:  Rscript scripts/process_tiles.R
 library(sf)
@@ -35,16 +36,8 @@ library(parallel)
 
 invisible(lapply(list.files("R", "\\.R$", full.names = TRUE), source))
 
-p <- list(
-  res_m         = 1,      # m, DOM1's native grid; bDOM is resampled onto it
-  veg_months    = 5:10,   # vegetation period, bDOM only
-  min_cover     = 0.05,   # smallest share of the tile an epoch must reach
-  loss_drop     = -5,     # m, lasting drop in canopy height counted as loss
-  open_radius   = 1.5,    # m, morphological opening, drops speckle
-  min_gap       = 20,     # m², smallest loss patch kept
-  buffer        = 50,     # m, read past the tile edge, see R/tile_loss.R
-  canopy_height = 5)      # m, canopy vs. open
-n_workers <- 8            # parallel tiles; 1 runs in this session, for debugging
+p         <- detection_params  # see R/params.R
+n_workers <- max(1, detectCores() %/% 2)  # half the cores; 1 runs here, for debugging
 chunk     <- 4            # tiles per worker between progress reports
 bbox      <- NULL         # c(xmin, ymin, xmax, ymax) in EPSG:25832, NULL for all
 tile_ids  <- NULL         # tile ids to run, NULL for all

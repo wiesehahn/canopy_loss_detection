@@ -12,12 +12,15 @@
 # DSM records the highest return. Averaged instead, it sinks into the gaps
 # between crowns and reads them as lost; checked against a later lidar survey,
 # this halved the false losses at the cost of some real ones at their edges.
+# Read into memory once: every operation on a remote VRT streams it again, and
+# the native bDOM pixels are most of a tile's run time.
 surfaces <- function(grid, ep) {
-  rast(lapply(seq_len(nrow(ep)), function(i) {
+  srf <- rast(lapply(seq_len(nrow(ep)), function(i) {
     method <- if (ep$product[i] == "bdom") "max" else "cubic"
     rast(rvt_data_lgln(grid, product = ep$product[i], year = ep$year[i],
                        method = method))
   }))
+  toMemory(srf)
 }
 
 # What each epoch changed against the last surface that had a value there.
@@ -49,7 +52,7 @@ observed <- function(d) max(!is.na(d))
 # The test is an absolute drop only. A relative one - the drop must take away a
 # share of the stand's height - would miss trees lost over a lower canopy
 # layer, where the surface falls only as far as the layer beneath.
-loss_year <- function(d, years, loss_drop, open_radius, min_gap) {
+loss_year <- function(d, years, loss_drop, open_radius, min_gap, regrowth) {
   # Each epoch's canopy height relative to the first, accumulated from the steps
   # so the last known value carries over a missing epoch.
   lev <- Reduce(\(prev, r) cover(prev + r, prev), as.list(d),
@@ -60,11 +63,16 @@ loss_year <- function(d, years, loss_drop, open_radius, min_gap) {
   # canopy fails that test from either side - one that reads the canopy too low
   # is contradicted by the epochs after it, and one that reads it too high only
   # lifts a single epoch, so the step back down never clears the running floor
-  # it is measured from. Real regrowth after a cut is slow enough to stay below
-  # the floor, so this costs nothing; what it cannot see through is a bad last
-  # epoch, which has nothing after it to be contradicted by.
+  # it is measured from. What it cannot see through is a bad last epoch, which
+  # has nothing after it to be contradicted by.
+  #
+  # A gap regrows, so each later epoch may stand up to `regrowth` m per year
+  # since the loss above where the loss left it and still count as lost.
   lowest <- Reduce(\(prev, r) min(prev, r), head(lev, -1), accumulate = TRUE)
-  after  <- rev(Reduce(\(nxt, r) max(nxt, r), rev(lev[-1]), accumulate = TRUE))
+  n <- nlyr(d)
+  after <- lapply(seq_len(n), \(k)
+    Reduce(\(a, b) max(a, b),
+           lapply(k:n, \(j) lev[[j + 1]] - regrowth * (years[j + 1] - years[k + 1]))))
   drop <- rast(after) - rast(lowest)
   loss <- mask(drop < loss_drop, d)
 

@@ -12,8 +12,8 @@
 # unless a path is given - not tempdir(), which an Rscript session deletes as it
 # exits.
 #
-# The detection is tile_loss(), the same as process_tiles.R runs, with the same
-# thresholds, so the image shows exactly what the mosaic holds for this tile.
+# The detection is tile_loss() with R/params.R, the same as process_tiles.R
+# runs, so the image shows exactly what the mosaic holds for this tile.
 # Next to the plot images in lidar-biodiversity-plots:
 #
 #   - The shading is the tile's first DOM1 at 1 m rather than a plot's ALS
@@ -32,14 +32,7 @@ invisible(lapply(list.files("R", "\\.R$", full.names = TRUE), source))
 coord     <- c(600445, 5741390)  # EPSG:25832, any point inside the tile
 out_path  <- NULL                # NULL: <temp>/canopy_loss_<tile_id>.webp
 year_span <- c(2010, 2026)       # fixed colour ramp, from the first DOM1 year
-p <- list(
-  res_m       = 1,      # m, DOM1's native grid; bDOM is resampled onto it
-  veg_months  = 5:10,   # vegetation period, bDOM only
-  min_cover   = 0.05,   # smallest share of the tile an epoch must reach
-  loss_drop   = -5,     # m, lasting drop in canopy height counted as loss
-  open_radius = 1.5,    # m, morphological opening, drops speckle
-  min_gap     = 20,     # m², smallest loss patch kept
-  buffer      = 50)     # m, read past the tile edge, see R/tile_loss.R
+p         <- detection_params    # see R/params.R
 
 args <- commandArgs(trailingOnly = TRUE)
 if (length(args) >= 1) coord <- as.numeric(strsplit(args[1], ",")[[1]])

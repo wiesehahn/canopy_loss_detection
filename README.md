@@ -9,8 +9,9 @@ years. The same functions are sourced by
 plot circles.
 
 All geodata is EPSG:25832. Run everything from the project root with R ≥ 4.5,
-`terra`, `sf` and [`rvtr`](https://github.com/wiesehahn/rvtr) (87afb2c or later,
-for the `method` argument of `rvt_data_lgln()`).
+`terra`, `sf`, `viridisLite` and [`rvtr`](https://github.com/wiesehahn/rvtr)
+(87afb2c or later, for the `method` argument of `rvt_data_lgln()`). The
+detection settings are in [`R/params.R`](R/params.R).
 
 ## Method
 
@@ -40,10 +41,11 @@ Averaged, it sinks into the gaps between crowns and reads them as lost.
      over a lower canopy layer still counts.
    - The drop has to last: the cell stays below its running floor in every
      later epoch. That separates a real cut from a bDOM that missed the canopy
-     for one year.
-4. **Cleaning.** An opening with a 1.5 m radius removes anything narrower than
-   about 3 m, and patches under 20 m² are dropped. Each loss is dated to the
-   epoch it first appears in.
+     for one year. A gap may regrow by up to 0.5 m per year since the loss
+     and still count as lost.
+4. **Cleaning.** An opening with a 1.5 m radius (3 × 3 cells) removes anything
+   narrower than 3 m, and patches under 20 m² are dropped. Each loss is dated
+   to the epoch it first appears in.
 
 **Statewide, per tile** ([`R/tile_loss.R`](R/tile_loss.R)):
 - The epochs are chosen on the tile itself.
@@ -51,14 +53,18 @@ Averaged, it sinks into the gaps between crowns and reads them as lost.
   Without the buffer, the opening and the patch-size filter would cut patches
   at tile edges.
 - The starting canopy is measured over LGLN DGM1, because there is no other
-  terrain model statewide.
+  terrain model statewide. Tiles without a DGM1 (about 4 %, mostly coast and
+  border) are not processed.
+
+How these choices were tested against later lidar surveys, and what the pilot
+found, is logged in [`docs/findings.md`](docs/findings.md).
 
 ## Scripts
 
 | script | does |
 |---|---|
 | [`scripts/get_lgln_coverage.R`](scripts/get_lgln_coverage.R) | Reads LGLN's tile indexes and writes `data/lgln_coverage.gpkg`: per tile, which years have DOM1 and bDOM20 data, and how many epochs that gives. It fetches no surfaces. |
-| [`scripts/process_tiles.R`](scripts/process_tiles.R) | The statewide run over all tiles with `comparable = TRUE`. It runs in parallel and can be resumed, and `bbox` / `tile_ids` restrict it for pilots. |
+| [`scripts/process_tiles.R`](scripts/process_tiles.R) | The statewide run over all tiles with `comparable = TRUE`. It runs in parallel on half the CPU cores and can be resumed, and `bbox` / `tile_ids` restrict it for pilots. |
 | [`scripts/build_outputs.R`](scripts/build_outputs.R) | Builds the mosaic and the per-tile table from what `process_tiles.R` has written so far. |
 | [`scripts/image_tile.R`](scripts/image_tile.R) | `Rscript scripts/image_tile.R 600445,5741390`: an image of one tile's losses, coloured by year, over a hillshade. |
 
@@ -66,12 +72,12 @@ Averaged, it sinks into the gaps between crowns and reads them as lost.
 
 | path | contents |
 |---|---|
-| `lgln_coverage.gpkg` | layer `tiles`: one polygon per tile with `dom1_years`, `bdom_years`, `bdom_veg_years`, `epoch_years`, `n_epochs`, `first_epoch`, `last_epoch`, `max_gap`, `comparable` (≥ 2 epochs), `lidar_only` (≥ 2 DOM1 years). Layer `flights`: one row per tile and flight, with its URL. |
+| `lgln_coverage.gpkg` | Layer `tiles`: one polygon per tile with the years per product (`dom1_years`, `bdom_years`, `bdom_veg_years`, each with a count), `epoch_years`, `n_epochs`, `first_epoch`, `last_epoch`, `span_years`, `max_gap`, `dgm1` (LGLN has a terrain model for the tile), `comparable` (≥ 2 epochs and a DGM1) and `lidar_only` (≥ 2 DOM1 years). Layer `flights`: one row per tile and flight, with its date and URL. |
 | `tiles/<tile_id>.tif` | One per measured tile, 1 m. Three bands: `loss_year` (year the canopy went, NA where it never did), `observed` (1 where some epoch could be differenced), `canopy` (1 where the stand was above 5 m when the record starts). |
 | `epochs/<tile_id>.csv` | The tile's epoch table: which LGLN years were used and why the others weren't. Its existence marks the tile as done. |
 | `log/` | `runs.csv` with status and seconds per tile; `<tile_id>.txt` with the error of a failed tile. |
 | `canopy_loss_year.vrt`, `canopy_loss_observed.vrt`, `canopy_loss_canopy.vrt` | All tiles as one mosaic: one single-band VRT per tile band, so the year opens on its own. |
-| `canopy_loss_tiles.gpkg` | Layer `tiles`: the coverage columns, plus `observed_m2`, `forest_m2`, `loss_m2`, `loss_pct`, `loss_pct_forest`, `loss_<year>_m2` and `reason`. Layer `tile_epochs`: all epoch tables. |
+| `canopy_loss_tiles.gpkg` | Layer `tiles`: the coverage columns, plus `first_year`, `last_year` and `n_used` of the epochs used, the areas and shares from [`R/metrics.R`](R/metrics.R) (`observed_m2`, `observed_pct`, `forest_m2`, `loss_m2`, `loss_pct`, `loss_forest_m2`, `loss_pct_forest`), `loss_<year>_m2` and `reason`. Layer `tile_epochs`: all epoch tables. |
 
 `loss_year` is NA both where nothing was lost and where nothing was looked at.
 Only `observed` tells those apart, and every share is taken against it.
@@ -83,9 +89,9 @@ Only `observed` tells those apart, and every share is taken against it.
   through broadleaf crowns that are not yet in full leaf.
 - **A bad last epoch can't be caught.** The "loss must last" rule works by
   contradiction from later epochs, and the last one has none.
-- **Run time.** In the pilot each tile took about 30 s, about 4.3 s per tile
-  with 8 workers, before bDOM was read at native resolution for the maximum.
-  That made the detection about three times slower per tile in testing; the
-  pilot is to be re-timed.
+- **Run time.** A tile takes about 40 s on one worker, most of it reading
+  bDOM at its native 20 cm for the maximum. On a 12-thread machine, 8 workers
+  managed about 5.7 s per tile and 12 workers 5.0 s; 16 were no faster. The
+  roughly 41,500 comparable tiles take two and a half to three days.
 - LGLN open data: © GeoBasis-DE/LGLN, CC BY 4.0. Add ", Daten geändert" when
   publishing anything derived from it.

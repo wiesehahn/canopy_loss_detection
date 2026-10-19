@@ -4,6 +4,7 @@ The building blocks for finding where forest disappeared in Lower Saxony. We com
 
 | File | What it does |
 |---|---|
+| `params.R` | The detection settings (thresholds, buffer, season), shared by all scripts |
 | `epochs.R` | Picks the survey years to compare (from aerial laser scans or aerial photos) and lines their height maps up on one grid |
 | `detection.R` | Compares each year with the one before it and finds the year the trees were lost |
 | `tile_loss.R` | Runs that comparison for one 1 × 1 km map tile |
