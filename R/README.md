@@ -10,4 +10,4 @@ The building blocks for finding where forest disappeared in Lower Saxony. We com
 | `tile_loss.R` | Runs that comparison for one 1 × 1 km map tile |
 | `metrics.R` | Turns the result into areas: how much was surveyed, how much was forest, how much was lost |
 | `render.R` | Draws the result as a map, coloured by the year of loss |
-| `tiles.R` | Converts between a tile's ID number and its location |
+| `tiles.R` | Converts between a tile's ID number and its location, and finds the buildings in a tile |

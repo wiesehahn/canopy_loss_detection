@@ -15,6 +15,18 @@ tile_ext <- function(tile_id, buffer = 0) {
   ext(x - buffer, x + 1000 + buffer, y - buffer, y + 1000 + buffer)
 }
 
+# TRUE where a building footprint, grown by `grow` metres, covers a cell of
+# `template`. Reads only the footprints near the template from `file`, the
+# GeoPackage scripts/get_buildings.R writes.
+built_up <- function(template, file, grow = 1) {
+  if (!file.exists(file))
+    stop("No building footprints at ", file, ". Run scripts/get_buildings.R first.",
+         call. = FALSE)
+  v <- vect(file, layer = "buildings", extent = ext(template) + grow + 1)
+  if (!nrow(v)) return(init(template, FALSE))
+  rasterize(buffer(v, grow), template, background = 0) == 1
+}
+
 # A grid over the tile for rvt_data_lgln(), written out as write_grid() does
 # for a plot. The tile's corners already sit on whole metres, so every product
 # lands on its own cells. `buffer` reaches into the neighbouring tiles, for

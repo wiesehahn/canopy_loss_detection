@@ -3,8 +3,9 @@
 #
 #   data/canopy_loss_<layer>.vrt all tiles as one mosaic, one single-band VRT
 #                                per layer of data/tiles/*.tif - year,
-#                                observed, canopy - so the year opens in QGIS
-#                                as the one band it is, not as an RGB image.
+#                                observed, canopy, from - so the year opens in
+#                                QGIS as the one band it is, not as an RGB
+#                                image.
 #   data/canopy_loss_tiles.gpkg  two layers:
 #     tiles        one polygon per tile in lgln_coverage.gpkg, with its
 #                  coverage columns, and for every measured tile the areas
@@ -23,11 +24,11 @@ invisible(lapply(list.files("R", "\\.R$", full.names = TRUE), source))
 years         <- 2010:2026  # columns of loss area per year
 coverage_file <- "data/lgln_coverage.gpkg"
 tile_dir      <- "data/tiles"
-epoch_dir     <- "data/epochs"
+epoch_file    <- "data/epochs.csv"
 out_file      <- "data/canopy_loss_tiles.gpkg"
 
 # band of the tile rasters -> name of its mosaic
-layers <- c(year = 1, observed = 2, canopy = 3)
+layers <- c(year = 1, observed = 2, canopy = 3, from = 4)
 
 tile_files <- list.files(tile_dir, "\\.tif$", full.names = TRUE)
 message(length(tile_files), " tile rasters")
@@ -36,8 +37,7 @@ for (l in names(layers))
   vrt(tile_files, paste0("data/canopy_loss_", l, ".vrt"),
       options = c("-b", layers[[l]]), overwrite = TRUE)
 
-epochs <- do.call(rbind, lapply(list.files(epoch_dir, "\\.csv$", full.names = TRUE),
-                                read.csv, colClasses = c(tile_id = "character")))
+epochs <- read.csv(epoch_file, colClasses = c(tile_id = "character"))
 
 # One row per measured tile.
 tile_row <- function(f) {

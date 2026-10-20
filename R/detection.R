@@ -88,6 +88,17 @@ loss_year <- function(d, years, loss_drop, open_radius, min_gap, regrowth) {
   min(classify(loss * years[-1], cbind(0, NA)), na.rm = TRUE)
 }
 
+# The earliest year a loss can have happened: the year of the last survey that
+# saw the cell before the loss. `year` is what loss_year() gives, the year of
+# the first survey that shows it, so the loss lies between the two flights. A
+# survey that did not reach the cell is skipped. The same year as that last
+# survey, not the next, since many flights are in early spring.
+loss_from <- function(srf, years, year) {
+  seen <- rast(lapply(seq_along(years), \(i) ifel(is.na(srf[[i]]), NA, years[i])))
+  before <- ifel(seen < year, seen, NA)
+  mask(max(before, na.rm = TRUE), year)
+}
+
 # Where the stand stood above `canopy_height` when the record starts - the area
 # that had something to lose, and so the denominator for any share of it. Not
 # srf[[1]] but the earliest surface that reaches each cell: the first epoch does

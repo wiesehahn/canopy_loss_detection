@@ -5,12 +5,11 @@
 # Give it any EPSG:25832 coordinate; it draws the 1 x 1 km tile that point falls
 # in. From the project root:
 #
-#   Rscript scripts/image_tile.R 600445,5741390
-#   Rscript scripts/image_tile.R 600445,5741390 out/my_tile.webp
+#   options(cld.coord = c(600445, 5741390))
+#   source("scripts/image_tile.R")
 #
-# or set `coord` below and source it. The image goes to the system temp folder
-# unless a path is given - not tempdir(), which an Rscript session deletes as it
-# exits.
+# The image goes to data/images/canopy_loss_<tile_id>.webp, or to
+# options(cld.image = "path.webp").
 #
 # The detection is tile_loss() with R/params.R, the same as process_tiles.R
 # runs, so the image shows exactly what the mosaic holds for this tile.
@@ -29,21 +28,20 @@ library(rvtr)
 
 invisible(lapply(list.files("R", "\\.R$", full.names = TRUE), source))
 
-coord     <- c(600445, 5741390)  # EPSG:25832, any point inside the tile
-out_path  <- NULL                # NULL: <temp>/canopy_loss_<tile_id>.webp
-year_span <- c(2010, 2026)       # fixed colour ramp, from the first DOM1 year
-p         <- detection_params    # see R/params.R
+coord     <- getOption("cld.coord")  # EPSG:25832, any point inside the tile
+out_path  <- getOption("cld.image")  # NULL: data/images/canopy_loss_<tile_id>.webp
+year_span <- c(2010, 2026)           # fixed colour ramp, from the first DOM1 year
+p         <- detection_params        # see R/params.R
 
-args <- commandArgs(trailingOnly = TRUE)
-if (length(args) >= 1) coord <- as.numeric(strsplit(args[1], ",")[[1]])
-if (length(args) >= 2) out_path <- args[2]
-if (length(coord) != 2 || anyNA(coord))
-  stop("Give the coordinate as x,y in EPSG:25832, e.g. 600445,5741390.",
+if (length(coord) != 2 || !is.numeric(coord) || anyNA(coord))
+  stop("Set the coordinate first, e.g. options(cld.coord = c(600445, 5741390)).",
        call. = FALSE)
 
 tile_id <- tile_of(coord)
-if (is.null(out_path))
-  out_path <- file.path(dirname(tempdir()), paste0("canopy_loss_", tile_id, ".webp"))
+if (is.null(out_path)) {
+  dir.create("data/images", recursive = TRUE, showWarnings = FALSE)
+  out_path <- file.path("data/images", paste0("canopy_loss_", tile_id, ".webp"))
+}
 
 message("tile ", tile_id)
 tl <- tile_loss(tile_id, p)

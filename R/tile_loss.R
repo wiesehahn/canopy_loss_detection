@@ -22,7 +22,11 @@
 #          lgln_epochs() gives it - with `used` cleared and `reason` set when
 #          the tile cannot be measured at all.
 #   year   loss_year() over the tile, NULL if the tile cannot be measured.
+#   from   loss_from() over the tile, likewise: the earliest year of each loss.
 #   seen   observed() over the tile, likewise.
+#   built  TRUE under a building footprint (grown by `building_grow`). year,
+#          from and seen are already masked with it; the caller masks anything
+#          else it derives, such as the starting canopy.
 #   grid, srf   the buffered grid and the surfaces on it, for anything else
 #          the caller wants read on the same cells (starting canopy, shading).
 #          The grid is a temporary file, the caller's to unlink.
@@ -35,7 +39,8 @@ tile_loss <- function(tile_id, p) {
   unusable <- function(reason) {
     ep$reason[ep$used] <- reason
     ep$used <- FALSE
-    list(ep = ep, year = NULL, seen = NULL, grid = NULL, srf = NULL)
+    list(ep = ep, year = NULL, from = NULL, seen = NULL, built = NULL, grid = NULL,
+         srf = NULL)
   }
   if (nrow(used) < 2) return(unusable("only epoch, nothing to compare"))
 
@@ -54,5 +59,14 @@ tile_loss <- function(tile_id, p) {
   year <- loss_year(d, used$year, p$loss_drop, p$open_radius, p$min_gap,
                     p$regrowth) |>
     crop(tile)
-  list(ep = ep, year = year, seen = seen, grid = grid, srf = srf)
+  from <- loss_from(crop(srf, tile), used$year, year)
+
+  # Buildings are not vegetation: no loss is counted on them, and they are
+  # left out of what was observed, so no share is taken against them either.
+  built <- built_up(seen, p$buildings, p$building_grow)
+  year  <- mask(year, built, maskvalues = TRUE)
+  from  <- mask(from, built, maskvalues = TRUE)
+  seen  <- ifel(built, 0, seen)
+  list(ep = ep, year = year, from = from, seen = seen, built = built,
+       grid = grid, srf = srf)
 }
