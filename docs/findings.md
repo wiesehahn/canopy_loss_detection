@@ -16,6 +16,42 @@ The canopy surface from a later lidar survey serves as a reference. Lidar measur
   - Changes between the last bDOM and the reference survey cannot have been detected, so "found" is a lower bound.
   - The reference lidar flights are mostly in March (leaf-off). In broadleaf stands they can read the canopy lower, which would count some false detections as confirmed.
 
+## 2026-10-22 – How many tiles allow regrowth analysis
+
+**Question:** regrowth needs a survey before the loss, one that shows it, and a later one, ideally lidar. On how many tiles does that exist?
+
+**Setup:** counted from the survey years in `lgln_coverage.gpkg`, without processing:
+- epochs as in the detection: DOM1 in any season, bDOM May–October, one per year;
+- the earliest year a loss can be seen is a tile's second epoch;
+- regrowth is anything after that.
+
+| of 41,473 comparable tiles | tiles | share |
+|---|---|---|
+| any survey after the earliest possible loss | 20,369 | 49 % |
+| … and it is lidar | 7,684 | 18.5 % |
+| lidar before, at and after the loss (3+ lidar years) | 267 | 0.6 % |
+
+Observable regrowth period, from the second epoch to the last (shorter still for later losses):
+
+| years | any survey | lidar |
+|---|---|---|
+| up to 2 | 10,484 | 5,681 |
+| 2–4 | 5,951 | 1,979 |
+| 4–6 | 3,858 | – |
+| 6–8 | 76 | 24 |
+
+**What it means:**
+- **The survey history leaves a gap.** Lidar was flown mostly 2013–2017 and again from 2025; photo surveys run from 2021.
+- **Common sequences:**
+  - L2017 → b2023 (7,909 tiles): no survey after the loss at all.
+  - L2015 → b2024 → L2025 (4,278 tiles): the lidar comes only 1 year after the loss was seen.
+  - L2013 → L2018 → b2022/b2024, or L2013 → L2020 → b2022: losses seen in 2018/2020 with 4–6 years of follow-up, but only by photo surfaces. These are rare.
+- **Lidar after the loss:** where it exists (7,700 tiles), it comes mostly 1–2 years after the loss was seen. That is too short for regrowth.
+- **Longer periods (4–6 years):** only bDOM covers them, on about 3,900 tiles. Image matching smooths small crowns and fills gaps, so young trees are uncertain there.
+- **Lidar-based regrowth analysis** needs the next lidar cycle, which has started with the 2025 flights. The losses of 2018–2024 become observable as lidar flights follow in the coming years.
+
+**Possible next step:** test whether bDOM shows young regrowth reliably on the Harz dieback tiles (loss seen 2018/2020, bDOM 2022/2024), against the few places with later lidar.
+
 ## 2026-10-22 – Lost trees and their species
 
 **Question:** can the single trees behind a loss be found, with their height, crown and species, at statewide cost?
@@ -276,6 +312,7 @@ Same 25 tiles, with the original method (levelled, cubic bDOM).
 ## Open
 
 - **Statewide run:** start it (41,473 tiles).
+- **Regrowth:** wait for the next lidar cycle; meanwhile test bDOM for young regrowth (see 2026-10-22).
 - **Plots repo:** re-run its outputs (`data/*/canopy_loss/`), which still hold levelled, cubic results.
 - **Lost trees:**
   - crown post-processing: drop crowns of 5 pixels or less, and elongated ones (axis ratio below about 0.4);
