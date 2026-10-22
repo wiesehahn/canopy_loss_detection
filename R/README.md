@@ -7,6 +7,7 @@ The building blocks for finding where forest disappeared in Lower Saxony. We com
 | `params.R` | The detection settings (thresholds, buffer, season), shared by all scripts |
 | `epochs.R` | Picks the survey years to compare (from aerial laser scans or aerial photos) and lines their height maps up on one grid |
 | `detection.R` | Compares each year with the one before it and finds the year the trees were lost |
+| `trees.R` | Finds the single trees in the lost areas: their tops, crowns and tree species |
 | `tile_loss.R` | Runs that comparison for one 1 × 1 km map tile |
 | `metrics.R` | Turns the result into areas: how much was surveyed, how much was forest, how much was lost |
 | `render.R` | Draws the result as a map, coloured by the year of loss |

@@ -16,6 +16,55 @@ The canopy surface from a later lidar survey serves as a reference. Lidar measur
   - Changes between the last bDOM and the reference survey cannot have been detected, so "found" is a lower bound.
   - The reference lidar flights are mostly in March (leaf-off). In broadleaf stands they can read the canopy lower, which would count some false detections as confirmed.
 
+## 2026-10-22 – Lost trees and their species
+
+**Question:** can the single trees behind a loss be found, with their height, crown and species, at statewide cost?
+
+**Method, as settled by the tests below** (`R/trees.R`):
+- **Pixels:** loss pixels only. A loss is taken to be whole crowns, which the loss patches confirm visually. Their height is the last lidar survey (DOM1) up to `loss_from`, minus DGM1. Loss pixels with no lidar survey before them get no trees.
+- **Tops:** lidR `lmf` on the *full* canopy height of that survey, keeping only tops on loss pixels. A top must therefore be a real local maximum, not the edge of the mask.
+  - Against tops found on the loss pixels alone, this gives 5–20 % fewer tops, almost all of them on patch edges.
+  - It costs about 1 s per tile.
+- **Crowns:** `dalponte2016` on the loss pixels.
+- **Species:** the majority species of the tree species map (2018, 10 m) within the crown.
+
+**Window:** `lmf` keeps a pixel as top if nothing within half the window is higher.
+- A generic window, `ws = 0.1·h + 1.2` (ForestTools example), split broadleaf crowns into 3–8 tops. Spruce needed a narrow window, broadleaf a wide one.
+- **Crown widths from our data:** compact isolated loss patches as single crowns, 113 tiles, 15,494 patches. Broadleaf crowns are wider and grow faster with height than conifers, but the 20 m² minimum patch biases these widths upwards.
+- **Literature:** no European crown-width models by height alone (they use stem diameter). Yield tables give stems per ha by height (Schober's collection: spruce Wiedemann 1936/42, pine Wiedemann 1943, beech Schober 1967, oak Jüttner 1955), which gives a stand spacing `S = sqrt(10000 / N)`, fitted as `A · h^B`.
+- **Chosen:** `ws = 2.0 · S(h)` per species group, with S held constant below 16 m, the lowest table height:
+  - spruce/fir `0.160 · h^1.168`;
+  - pine/larch `0.114 · h^1.371`;
+  - broadleaf `0.061 · h^1.510`;
+  - unknown species: the mean of spruce and broadleaf.
+- **The factor 2.0** is the one number fitted on our data: the one giving most single-crown patches exactly one top. It stands for the step from all stems in the yield table to the trees visible as tops in the canopy.
+  - All groups: 66.6 % exactly one top, 15.8 % none, 17.6 % several.
+  - Spruce 73 %, pine 69 %, broadleaf 70 %, oak 56 %.
+  - A window fitted fully on our data was only 2–3 points better.
+- **Oak** uses the broadleaf (beech) curve. The oak table thins so strongly with age that its own curve gave windows of almost 20 m at 35 m height, and fewer correct crowns (51 %).
+
+**Checks:**
+- **Against 0.5 m canopy heights from local lidar point clouds,** from the same flights as the DOM1 surveys used (heights agree to 0.1 m), on a spruce, a mixed and a broadleaf tile.
+  - With species windows, 1 m counts stay within 0–11 % of the 0.5 m counts.
+  - 84–89 % of 1 m tops have a 0.5 m top within 2 m.
+  - With the generic window they were 21–34 % higher.
+- **Pilot (25 tiles, Harz):** 159,319 lost trees on 766 ha of loss (208 per ha), 93 % spruce. Lost-tree detection takes about 4–8 s per tile, and the loss totals are unchanged.
+
+**Storage:** the trees are kept in the tile rasters, as bands `species`, `crown` (tree ID) and `tree_top` (height in dm), not as a point file.
+- **Size:** a point GeoPackage took 20.9 MB for the pilot's 159,319 trees, about 125 bytes each, and would grow to several GB statewide.
+- **IDs:** unique across tiles, so the rasters are 32-bit. On the heaviest pilot tile (1.08 MB):
+  - 32-bit instead of 16-bit adds about 12 % to bands 1–5;
+  - the `crown` band takes 0.43 MB and `tree_top` 0.08 MB;
+  - ZSTD compresses no better than DEFLATE.
+- **Pilot total:** the 25 tiles take 19.2 MB, against 8.7 MB before plus the 20.9 MB GeoPackage. The extra size grows with the lost area, not with the number of tiles.
+- **Reading:** terra cannot read the 32-bit IDs (it returns NA above 2^31). `trees_from_tiles()` reads them with gdalraster, 159,319 trees in 3 s.
+
+**Limits:**
+- Counts are estimates: neighbouring crowns can merge and large crowns can split at 1 m.
+- Trees outside the forest are mostly "unknown" in the species map, and yield tables don't describe them: they have wider crowns, so they tend to be split.
+- Pine above 30 m is extrapolated.
+- Crowns are not post-processed: tiny or elongated crowns are kept.
+
 ## 2026-10-19 – Buildings masked; no forest mask
 
 **Question:** canopy is everything ≥ 5 m, so houses count as canopy, and demolitions could count as loss. Which LGLN open data keeps that out best?
@@ -228,4 +277,8 @@ Same 25 tiles, with the original method (levelled, cubic bDOM).
 
 - **Statewide run:** start it (41,473 tiles).
 - **Plots repo:** re-run its outputs (`data/*/canopy_loss/`), which still hold levelled, cubic results.
+- **Lost trees:**
+  - crown post-processing: drop crowns of 5 pixels or less, and elongated ones (axis ratio below about 0.4);
+  - a window for trees outside the forest;
+  - a check against more point-cloud tiles.
 - **Grew up, then cut:** a tree that grew up after the first epoch and was then cut is missed, because the running floor stays at the old gap. This is a different case from the regrowth allowance, which tolerates regrowth after a loss.

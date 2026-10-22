@@ -5,8 +5,8 @@
 #
 # Writes
 #
-#   data/tiles/<tile_id>.tif  one raster per measured tile, four layers, 1 m,
-#                the tile's own 1 x 1 km:
+#   data/tiles/<tile_id>.tif  one raster per measured tile, seven layers, 1 m,
+#                32-bit (for the tree IDs), the tile's own 1 x 1 km:
 #     loss_year  the year of the first survey that shows the loss, NA where
 #                the canopy never went - the latest year it can have gone.
 #     observed   1 where some epoch could be differenced, 0 where none could
@@ -18,6 +18,12 @@
 #                Buildings are 0.
 #     loss_from  the year of the last survey before the loss - the earliest
 #                year it can have gone. The loss lies between the two flights.
+#     species    the lost trees (R/trees.R), on their crowns: the tree's
+#                species code (0 none, 1-12 as in scripts/get_species.R).
+#     crown      the tree's ID on its crown, unique across all tiles.
+#     tree_top   the tree's height in dm, on its top pixel only.
+#                All three NA off the lost trees; trees_from_tiles() reads them
+#                back as one row per tree.
 #
 # and two tables for all tiles, appended by this session after every batch -
 # only it writes them, so the parallel workers never collide:
@@ -63,6 +69,9 @@ dir.create(tile_dir, recursive = TRUE, showWarnings = FALSE)
 if (!file.exists(p$buildings))
   stop("No building footprints at ", p$buildings, ". Run scripts/get_buildings.R first.",
        call. = FALSE)
+if (!file.exists(p$species))
+  stop("No tree species map at ", p$species, ". Run scripts/get_species.R first.",
+       call. = FALSE)
 
 # What is left to do: comparable tiles, inside the selection, without epoch
 # rows yet.
@@ -88,14 +97,17 @@ process_tile <- function(tile_id) {
     canopy <- starting_canopy(tl$srf, dtm, p$canopy_height) |>
       crop(tile_ext(tile_id))
     canopy <- ifel(tl$built, 0, canopy)
-    out <- c(tl$year, tl$seen, canopy, tl$from)
-    names(out) <- c("loss_year", "observed", "canopy", "loss_from")
+    trees <- lost_trees(tl, dtm, tile_id, p)
+    if (is.null(trees)) trees <- rast(tl$year, nlyrs = 3, vals = NA)
+    out <- c(tl$year, tl$seen, canopy, tl$from, trees)
+    names(out) <- c("loss_year", "observed", "canopy", "loss_from",
+                    "species", "crown", "tree_top")
     # Copied through gdal_translate -stats, so complete band statistics sit
     # inside the GeoTIFF. terra writes only min and max, and a viewer such as
     # QGIS would compute the rest and leave them beside it as .aux.xml. The
     # temporary file goes with the session's temp folder (run_one()).
     tmp <- tempfile(fileext = ".tif")
-    writeRaster(out, tmp, datatype = "INT2U")
+    writeRaster(out, tmp, datatype = "INT4U")
     sf::gdal_utils("translate", tmp, file.path(tile_dir, paste0(tile_id, ".tif")),
                    options = c("-stats", "-co", "COMPRESS=DEFLATE", "-co", "PREDICTOR=2"),
                    config_options = c(GTIFF_SRS_SOURCE = "EPSG"))

@@ -24,6 +24,7 @@ Each one records the height of whatever is on top, tree crowns in a forest. Comp
    A single survey that misreads the canopy is then contradicted by the next one and not counted.
 4. **Clean up.** Specks narrower than 3 m and patches smaller than 20 m² are removed. Each loss is dated to the first survey that shows it.
 5. **Leave out buildings.** Building footprints from the official cadastre (ALKIS) are removed, so every change counted is vegetation. Trees outside the forest, in gardens, along roads and in hedges, are kept.
+6. **Find the lost trees.** Within the lost area, single trees are found in the last lidar survey before the loss: tree tops as local height maxima, and the lost area split into their crowns. How far apart tops must be depends on height and species, following yield-table stand densities. Each tree gets the species of the [German tree species map 2018](https://doi.org/10.25625/XOZAGY) that most of its crown lies on.
 
 The thresholds were chosen and checked against later lidar surveys that the detection never saw. [`docs/findings.md`](docs/findings.md) logs those tests and the reasons behind each setting.
 
@@ -35,17 +36,19 @@ The thresholds were chosen and checked against later lidar surveys that the dete
 | Earliest loss map | The year of the last survey before the loss, so each loss is dated to a period, not a single year |
 | Coverage map | Where the data allowed a comparison at all (buildings excluded), so "no loss" can be told apart from "not observed" |
 | Starting forest | Where there was canopy (above 5 m) when the record starts |
-| Tile table | Per tile: forest area, lost area, loss per year, and which surveys were used |
+| Lost trees | The crown of each lost tree (with an ID unique across the state), its top and height, and its species |
+| Tile table | Per tile: forest area, lost area, loss per year, number of lost trees, and which surveys were used |
 
 A loss can only be dated to the time between two surveys: after the last flight that still saw the canopy, and by the first flight that shows it gone. A cell with an earliest year of 2018 and a loss year of 2022 lost its canopy at some point between those two flights.
 
-The maps are mosaics over all tiles (`data/canopy_loss_year.vrt`, `data/canopy_loss_from.vrt`, `data/canopy_loss_observed.vrt`, `data/canopy_loss_canopy.vrt`). The table is `data/canopy_loss_tiles.gpkg`. [`docs/data.md`](docs/data.md) describes every file, band, column and value.
+The maps are mosaics over all tiles (`data/canopy_loss_year.vrt`, `data/canopy_loss_from.vrt`, `data/canopy_loss_observed.vrt`, `data/canopy_loss_canopy.vrt`, and for the lost trees `data/canopy_loss_species.vrt`, `data/canopy_loss_crown.vrt`, `data/canopy_loss_tree_top.vrt`). `trees_from_tiles()` in `R/trees.R` turns the lost trees of any set of tiles into a table. The tile table is `data/canopy_loss_tiles.gpkg`. [`docs/data.md`](docs/data.md) describes every file, band, column and value.
 
 ## Limitations
 
 - **Mixed data sources:** lidar and photo-based surfaces do not measure the canopy identically. Comparisons that involve a photo-based survey are less reliable than lidar against lidar.
 - **The latest survey is the least certain:** a loss can only be confirmed by a later survey, and the most recent one has none.
 - **Coverage:** tiles with fewer than two usable surveys, or without an LGLN terrain model (mostly coast and border), are not processed.
+- **Lost trees are an estimate:** from 1 m surfaces, neighbouring crowns can merge or one crown can split. In tests about two thirds of clearly single crowns got exactly one tree. Losses with no lidar survey before them get no trees, and trees outside the forest mostly have no species.
 
 ## Project structure
 
@@ -61,7 +64,7 @@ The functions in `R/` are also used by [lidar-biodiversity-plots](../lidar-biodi
 
 ## Running it
 
-**Requirements:** R ≥ 4.5 with `terra`, `sf`, `viridisLite` and [`rvtr`](https://github.com/wiesehahn/rvtr) (87afb2c or later). Nothing needs to be downloaded in advance: the surveys are streamed from LGLN while processing.
+**Requirements:** R ≥ 4.5 with `terra`, `sf`, `lidR`, `gdalraster`, `viridisLite` and [`rvtr`](https://github.com/wiesehahn/rvtr) (87afb2c or later). Nothing needs to be downloaded in advance: the surveys are streamed from LGLN while processing.
 
 **Run everything**, from the project root:
 
@@ -71,7 +74,7 @@ source("run.R")
 
 This runs three steps:
 
-1. List which surveys exist for each tile, and download the building footprints (once, about 700 MB).
+1. List which surveys exist for each tile, and download the building footprints and the tree species map (once, about 700 and 600 MB).
 2. Detect loss in every tile, in parallel. This step takes days for the whole state. It can be stopped and restarted at any time, and finished tiles are skipped.
 3. Build the maps and the tile table from the tiles finished so far.
 

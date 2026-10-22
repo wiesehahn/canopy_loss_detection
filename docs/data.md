@@ -16,7 +16,7 @@ A **survey** (or epoch) is one year of LGLN surface data for a tile: lidar (DOM1
 
 ## Loss rasters: `tiles/<tile_id>.tif`
 
-One GeoTIFF per measured tile: 1000 × 1000 cells of 1 m, unsigned 16-bit integers, NoData value 65535 (shown as empty in GIS software). Band statistics are stored in the file.
+One GeoTIFF per measured tile: 1000 × 1000 cells of 1 m, unsigned 32-bit integers (for the tree IDs), NoData value 4294967295 (shown as empty in GIS software). Band statistics are stored in the file.
 
 | band | name | values | meaning |
 |---|---|---|---|
@@ -24,6 +24,11 @@ One GeoTIFF per measured tile: 1000 × 1000 cells of 1 m, unsigned 16-bit intege
 | 2 | `observed` | `1`, `0` | `1` where at least two surveys could be compared. `0` where they could not (no survey overlap), and under buildings. |
 | 3 | `canopy` | `1`, `0` | `1` where something stood at least 5 m above the ground when the record starts: trees, inside or outside the forest. `0` elsewhere, including under buildings. |
 | 4 | `loss_from` | year, e.g. `2018`; empty | The year of the last survey that still saw the canopy: the earliest year the loss can have happened. Empty exactly where `loss_year` is empty. |
+| 5 | `species` | `0`–`12`; empty | On the crowns of lost trees, the tree's species (codes below). Empty elsewhere, including loss pixels that got no tree. |
+| 6 | `crown` | tree ID; empty | On the crowns of lost trees, the tree's ID: one crown, one ID, unique across all tiles. |
+| 7 | `tree_top` | height in dm; empty | On the top pixel of each lost tree only, its height above ground in decimetres (e.g. `257` = 25.7 m), from the lidar survey before the loss. |
+
+**Species codes** (band 5), from the dominant tree species map of Germany 2018: `0` none (outside the map's forest, or disturbed before 2018), `1` alder, `2` ash, `3` beech, `4` birch, `5` Douglas fir, `6` fir, `7` larch, `8` maple, `9` oak, `10` other broadleaf, `11` pine, `12` spruce.
 
 **Reading a cell:**
 
@@ -41,7 +46,19 @@ One GeoTIFF per measured tile: 1000 × 1000 cells of 1 m, unsigned 16-bit intege
 
 ## Mosaics: `canopy_loss_<band>.vrt`
 
-`canopy_loss_year.vrt`, `canopy_loss_from.vrt`, `canopy_loss_observed.vrt` and `canopy_loss_canopy.vrt` join one band of all tile rasters into a single statewide layer. The values are as above. They are small text files that point to the tiles, so they need `tiles/` next to them.
+`canopy_loss_year.vrt`, `canopy_loss_from.vrt`, `canopy_loss_observed.vrt`, `canopy_loss_canopy.vrt`, `canopy_loss_species.vrt`, `canopy_loss_crown.vrt` and `canopy_loss_tree_top.vrt` join one band of all tile rasters into a single statewide layer. The values are as above. They are small text files that point to the tiles, so they need `tiles/` next to them.
+
+## Lost trees (bands 5–7)
+
+The lost trees are stored in the tile rasters, not as a separate file. A tree is one `tree_top` pixel: its position, its height, and the same pixel's `crown` (ID), `species`, `loss_from` and `loss_year`. Its crown is every pixel with the same `crown` value. Trees are found only on loss pixels, in the last lidar survey before the loss; losses with no lidar survey before them get no trees.
+
+**Tree ID:** `(tile number × 32768) + tree number`. The tile number is the tile's place in LGLN's tile grid, `(easting km − 340) × 299 + (northing km − 5682)`, and the tree number counts 1, 2, … within the tile. So:
+- IDs are unique across all tiles and depend only on the grid, not on processing order;
+- the tile can be read back from any ID: tile number = `ID %/% 32768` (`tree_tile()` in `R/trees.R`).
+
+**As a table:** `trees_from_tiles(files)` in `R/trees.R` returns one row per tree (`id`, `x`, `y`, `height` in m, `species`, `loss_from`, `loss_year`) for any set of tiles. From there it can be written as points, for example with `sf::st_as_sf(..., coords = c("x", "y"), crs = 25832)`.
+
+**Reading in R:** terra reads unsigned 32-bit bands as R integers, which stop at 2,147,483,647, so it shows the tree IDs as empty. The other bands are fine in terra. Read the IDs with gdalraster (as `trees_from_tiles()` does), stars or GDAL directly. QGIS and Python read them correctly.
 
 ## Tile table: `canopy_loss_tiles.gpkg`
 
@@ -71,6 +88,7 @@ One polygon per LGLN tile, for all of Lower Saxony.
 | `loss_forest_m2` | Lost area within the starting canopy |
 | `loss_pct_forest` | `loss_forest_m2` as % of `forest_m2`: the share of the canopy lost |
 | `loss_<year>_m2` | Lost area per year of detection (`loss_year`), 2010–2026 |
+| `lost_trees` | Number of lost trees found in the tile (`tree_top` pixels) |
 | `reason` | Empty for measured tiles; otherwise why there are no values: `fewer than two epochs in the tile index`, `no DGM1 terrain model`, `not processed yet`, `only epoch, nothing to compare` or `no epoch overlaps another` |
 
 All areas are in m², rounded to 0.1. They are empty (NA) for tiles that were not measured.
@@ -112,5 +130,6 @@ Written by step 1, before any tile is processed.
 | path | contents |
 |---|---|
 | `buildings.gpkg` | ALKIS building footprints for Lower Saxony (layer `buildings`), used to mask buildings |
+| `treespecies_2018.tif` | Dominant tree species map of Germany 2018 (10 m, EPSG:3035), used for the lost trees |
 | `runs.csv` | One row per attempt at a tile: `tile_id`, `status` (`measured`, `skipped` or `failed`), `seconds`, `error` (the message of a failed tile, which is retried on the next run) and `finished` |
 | `images/canopy_loss_<tile_id>.webp` | Images from `scripts/image_tile.R` |

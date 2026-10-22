@@ -3,14 +3,15 @@
 #
 #   data/canopy_loss_<layer>.vrt all tiles as one mosaic, one single-band VRT
 #                                per layer of data/tiles/*.tif - year,
-#                                observed, canopy, from - so the year opens in
-#                                QGIS as the one band it is, not as an RGB
-#                                image.
+#                                observed, canopy, from, species, crown,
+#                                tree_top - so the year opens in QGIS as the
+#                                one band it is, not as an RGB image.
 #   data/canopy_loss_tiles.gpkg  two layers:
 #     tiles        one polygon per tile in lgln_coverage.gpkg, with its
 #                  coverage columns, and for every measured tile the areas
 #                  from loss_metrics() (R/metrics.R) and the loss per year as
-#                  loss_<year>_m2. A tile with no raster keeps NA and `reason`
+#                  loss_<year>_m2, and the number of lost trees found in it.
+#                  A tile with no raster keeps NA and `reason`
 #                  says why: too few epochs, no DGM1, not processed yet, or
 #                  what stopped it.
 #     tile_epochs  every tile's epoch table, bound together.
@@ -28,7 +29,8 @@ epoch_file    <- "data/epochs.csv"
 out_file      <- "data/canopy_loss_tiles.gpkg"
 
 # band of the tile rasters -> name of its mosaic
-layers <- c(year = 1, observed = 2, canopy = 3, from = 4)
+layers <- c(year = 1, observed = 2, canopy = 3, from = 4, species = 5, crown = 6,
+            tree_top = 7)
 
 tile_files <- list.files(tile_dir, "\\.tif$", full.names = TRUE)
 message(length(tile_files), " tile rasters")
@@ -48,6 +50,7 @@ tile_row <- function(f) {
   cbind(data.frame(tile_id = id, first_year = min(used$year),
                    last_year = max(used$year), n_used = nrow(used)),
         loss_metrics(r),
+        lost_trees = unname(unlist(global(!is.na(r$tree_top), "sum"))),
         as.data.frame(as.list(setNames(by_year, paste0("loss_", years, "_m2")))))
 }
 measured <- do.call(rbind, lapply(tile_files, tile_row))
