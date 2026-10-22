@@ -25,14 +25,16 @@
 library(sf)
 
 source("R/params.R")
+source("R/lgln_index.R")
 veg_months <- detection_params$veg_months  # vegetation period, bDOM only
 out_file   <- "data/lgln_coverage.gpkg"
+state_file <- "data/lgln_coverage_source.csv"  # index ETags it was built from
 
-index_url <- c(
-  dom1 = "https://arcgis-geojson.s3.eu-de.cloud-object-storage.appdomain.cloud/dom1/lgln-opengeodata-dom1.geojson",
-  bdom = "https://arcgis-geojson.s3.eu-de.cloud-object-storage.appdomain.cloud/bdom20/lgln-opengeodata-bdom20.geojson")
-dgm1_url <- "https://arcgis-geojson.s3.eu-de.cloud-object-storage.appdomain.cloud/dgm1/lgln-opengeodata-dgm1.geojson"
+index_url <- lgln_index_url[c("dom1", "bdom")]
+dgm1_url  <- lgln_index_url[["dgm1"]]
 url_field <- c(dom1 = "dom1", bdom = "bdom")
+state     <- lgln_index_state()   # taken before reading, so a change during the
+                                  # build shows up as a change next time
 
 read_index <- function(product) {
   message("reading ", product, " index")
@@ -113,9 +115,17 @@ tiles$lidar_only <- tiles$dom1_n >= 2
 st_geometry(tiles) <- "geom"
 tiles <- tiles[order(tiles$tile_id), ]
 
-if (file.exists(out_file)) file.remove(out_file)
-st_write(tiles, out_file, layer = "tiles", quiet = TRUE)
-st_write(flights, out_file, layer = "flights", append = TRUE, quiet = TRUE)
+# Written beside the old file and swapped in at the end, so a failed build
+# leaves the old coverage in place.
+tmp <- sub("[.]gpkg$", "_part.gpkg", out_file)
+unlink(tmp)
+st_write(tiles, tmp, layer = "tiles", quiet = TRUE)
+st_write(flights, tmp, layer = "flights", append = TRUE, quiet = TRUE)
+if (file.exists(out_file) && !file.remove(out_file))
+  stop(out_file, " is in use (open in QGIS?). Close it and run again; the new ",
+       "coverage is in ", tmp, ".", call. = FALSE)
+invisible(file.rename(tmp, out_file))
+if (!is.null(state)) write.csv(state, state_file, row.names = FALSE)
 
 message(nrow(tiles), " tiles, ", sum(tiles$n_epochs >= 2), " with two or more epochs, ",
         sum(tiles$comparable), " of them with DGM1 (comparable), ",

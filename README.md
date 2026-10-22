@@ -43,6 +43,14 @@ A loss can only be dated to the time between two surveys: after the last flight 
 
 The maps are mosaics over all tiles (`data/canopy_loss_year.vrt`, `data/canopy_loss_from.vrt`, `data/canopy_loss_observed.vrt`, `data/canopy_loss_canopy.vrt`, and for the lost trees `data/canopy_loss_species.vrt`, `data/canopy_loss_crown.vrt`, `data/canopy_loss_tree_top.vrt`). `trees_from_tiles()` in `R/trees.R` turns the lost trees of any set of tiles into a table. The tile table is `data/canopy_loss_tiles.gpkg`. [`docs/data.md`](docs/data.md) describes every file, band, column and value.
 
+## Data availability
+
+How much can be measured depends on how often LGLN has surveyed a tile. Loss needs at least two usable surveys: lidar in any season, photo-based ones only from May to October.
+
+![Usable surveys per 1 × 1 km tile](docs/images/coverage_epochs.png)
+
+The south was mostly surveyed only once so far and cannot be compared yet. Along the coast and the Elbe there are up to six surveys. The map, and maps of lidar years and the latest survey (`docs/images/coverage_*.png`), are redrawn whenever LGLN publishes new data.
+
 ## Limitations
 
 - **Mixed data sources:** lidar and photo-based surfaces do not measure the canopy identically. Comparisons that involve a photo-based survey are less reliable than lidar against lidar.
