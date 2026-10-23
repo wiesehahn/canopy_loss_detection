@@ -73,13 +73,16 @@ One polygon per LGLN tile, for all of Lower Saxony.
 | `bdom_years`, `bdom_n` | Photo-based (bDOM20) survey years, and their number |
 | `bdom_veg_years`, `bdom_veg_n` | The bDOM20 years flown in May–October, the only ones used |
 | `epoch_years`, `n_epochs` | All usable survey years (DOM1 and summer bDOM20, one per year), and their number |
+| `epoch_dates` | The flight dates behind `epoch_years`. A tile is processed again when these change. |
 | `first_epoch`, `last_epoch` | First and last usable survey year |
 | `span_years` | `last_epoch − first_epoch` |
 | `max_gap` | Longest gap between two consecutive surveys, in years |
 | `dgm1` | `TRUE` if LGLN has a terrain model (DGM1) for the tile |
 | `comparable` | `TRUE` if the tile can be processed: at least two surveys and a DGM1 |
 | `lidar_only` | `TRUE` if the tile has at least two lidar years |
-| `first_year`, `last_year`, `n_used` | First and last survey year actually used for this tile, and their number (from `epochs.csv`). Can differ from the columns above, because a survey covering less than 5 % of the tile is dropped. |
+| `status` | `measured`, `skipped` (processed, but nothing to compare, see `reason`), or empty if not processed |
+| `params`, `processed` | The settings the tile was made with (see `params/` below) and when |
+| `first_year`, `last_year`, `n_used` | First and last survey year actually used for this tile, and their number. Can differ from the columns above, because a survey covering less than 5 % of the tile is dropped. |
 | `observed_m2` | Area where surveys could be compared (`observed` = 1) |
 | `observed_pct` | `observed_m2` as % of the tile |
 | `forest_m2` | Starting canopy within the observed area (`canopy` = 1). Named forest, but it includes trees outside the forest. |
@@ -87,9 +90,9 @@ One polygon per LGLN tile, for all of Lower Saxony.
 | `loss_pct` | `loss_m2` as % of `observed_m2` |
 | `loss_forest_m2` | Lost area within the starting canopy |
 | `loss_pct_forest` | `loss_forest_m2` as % of `forest_m2`: the share of the canopy lost |
-| `loss_<year>_m2` | Lost area per year of detection (`loss_year`), 2010–2026 |
 | `lost_trees` | Number of lost trees found in the tile (`tree_top` pixels) |
-| `reason` | Empty for measured tiles; otherwise why there are no values: `fewer than two epochs in the tile index`, `no DGM1 terrain model`, `not processed yet`, `only epoch, nothing to compare` or `no epoch overlaps another` |
+| `loss_<year>_m2` | Lost area per year of detection (`loss_year`), one column for every year with loss in some tile. They add up to `loss_m2`. |
+| `reason` | Empty for measured tiles; otherwise why there are no values: `fewer than two epochs in the tile index`, `no DGM1 terrain model`, `not processed yet`, `only epoch, nothing to compare`, `no epoch overlaps another`, or `failed:` and the error |
 
 All areas are in m², rounded to 0.1. They are empty (NA) for tiles that were not measured.
 
@@ -99,7 +102,7 @@ A copy of `epochs.csv` (below).
 
 ## Epoch table: `epochs.csv`
 
-One row per tile, survey year and product that LGLN holds. It shows which surveys were used for each tile, and why the others were not. A tile's rows are written after its raster, so a tile with rows here is done; the next run skips it.
+One row per processed tile, survey year and product that LGLN holds. It shows which surveys were used for each tile, and why the others were not.
 
 | column | meaning |
 |---|---|
@@ -112,6 +115,17 @@ One row per tile, survey year and product that LGLN holds. It shows which survey
 | `covers` | `TRUE` if `coverage` is 1 |
 | `used` | `TRUE` if the survey went into the detection |
 | `reason` | Why not, if not used: `outside vegetation period`, `coverage too small`, `other product reaches further in the same year`, or a reason the whole tile was skipped |
+
+## Result table: `tile_results.csv`
+
+One row per processed tile, written by step 2 right after the tile, and the source of the tile table above. A tile with a row here is done. The next run skips it, unless its `epoch_dates` in the coverage or the settings have changed since; then its rows here and in `epochs.csv` are replaced.
+
+The columns are those of the tile table from `status` to `lost_trees`, plus:
+
+| column | meaning |
+|---|---|
+| `epoch_dates` | The coverage's `epoch_dates` when the tile was processed |
+| `loss_by_year` | Lost area per year as text, e.g. `2018:135171;2022:331473` (year:m²); the tile table spreads it into the `loss_<year>_m2` columns |
 
 ## Coverage: `lgln_coverage.gpkg`
 
@@ -131,5 +145,9 @@ Written by step 1, before any tile is processed.
 |---|---|
 | `buildings.gpkg` | ALKIS building footprints for Lower Saxony (layer `buildings`), used to mask buildings |
 | `treespecies_2018.tif` | Dominant tree species map of Germany 2018 (10 m, EPSG:3035), used for the lost trees |
+| `lgln_coverage_source.csv` | The ETags (content checksums) of LGLN's tile indexes the coverage was built from. When LGLN serves other ones, step 1 rebuilds the coverage. |
+| `params/<params>.txt` | Each set of settings tiles were made with, under the fingerprint in the `params` column |
 | `runs.csv` | One row per attempt at a tile: `tile_id`, `status` (`measured`, `skipped` or `failed`), `seconds`, `error` (the message of a failed tile, which is retried on the next run) and `finished` |
 | `images/canopy_loss_<tile_id>.webp` | Images from `scripts/image_tile.R` |
+
+The maps of data availability are in the repository, not in `data/`: `docs/images/coverage_epochs.png` (usable surveys per tile), `coverage_lidar.png` (lidar surveys per tile) and `coverage_latest.png` (year of the latest usable survey). They are redrawn with the coverage.

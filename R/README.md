@@ -4,7 +4,8 @@ The building blocks for finding where forest disappeared in Lower Saxony. We com
 
 | File | What it does |
 |---|---|
-| `params.R` | The detection settings (thresholds, buffer, season), shared by all scripts |
+| `params.R` | The detection settings (thresholds, buffer, season), shared by all scripts, and a fingerprint of them, so tiles made with other settings are redone |
+| `lgln_index.R` | Where LGLN's lists of available tiles are, and whether they have changed since the last run |
 | `epochs.R` | Picks the survey years to compare (from aerial laser scans or aerial photos) and lines their height maps up on one grid |
 | `detection.R` | Compares each year with the one before it and finds the year the trees were lost |
 | `trees.R` | Finds the single trees in the lost areas: their tops, crowns and tree species |

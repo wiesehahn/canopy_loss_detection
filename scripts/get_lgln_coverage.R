@@ -23,6 +23,7 @@
 # given plot a tile reaches, so this is an upper bound on what lgln_epochs()
 # will accept for a plot, not the same answer.
 library(sf)
+library(cli)
 
 source("R/params.R")
 source("R/lgln_index.R")
@@ -37,7 +38,7 @@ state     <- lgln_index_state()   # taken before reading, so a change during the
                                   # build shows up as a change next time
 
 read_index <- function(product) {
-  message("reading ", product, " index")
+  cli_progress_step("Reading the {product} tile index")
   x <- st_read(paste0("/vsicurl/", index_url[[product]]), quiet = TRUE)
   date <- as.Date(substr(x$Aktualitaet, 1, 10))
   x$product <- product
@@ -69,9 +70,10 @@ latest$usable <- latest$product == "dom1" |
 flights$latest_in_year <- paste(flights$tile_id, flights$product, flights$date) %in%
   paste(latest$tile_id, latest$product, latest$date)
 
-# Per tile, the years a selection of `latest` holds, as "2015,2021,2024".
-years_of <- function(sel) {
-  y <- tapply(latest$year[sel], latest$tile_id[sel],
+# Per tile, the years a selection of `latest` holds, as "2015,2021,2024" (or
+# another column of it, such as the dates).
+years_of <- function(sel, col = "year") {
+  y <- tapply(as.character(latest[[col]][sel]), latest$tile_id[sel],
               \(v) paste(sort(unique(v)), collapse = ","))
   out <- as.vector(y[tiles$tile_id])
   out[is.na(out)] <- ""
@@ -92,6 +94,9 @@ tiles$bdom_veg_n     <- count_of(tiles$bdom_veg_years)
 # The epochs the change detection could use: one per year with a usable surface.
 tiles$epoch_years <- years_of(latest$usable)
 tiles$n_epochs    <- count_of(tiles$epoch_years)
+# The flight dates behind them. process_tiles.R redoes a tile when these
+# change, which they do for a new year and for a year flown again.
+tiles$epoch_dates <- years_of(latest$usable, "date")
 
 ep <- lapply(strsplit(tiles$epoch_years, ","), as.integer)
 tiles$first_epoch <- vapply(ep, \(v) if (length(v)) min(v) else NA_integer_, 1L)
@@ -103,7 +108,7 @@ tiles$max_gap     <- vapply(ep, \(v) if (length(v) > 1) max(diff(v)) else NA_int
 # Whether LGLN has a terrain model (DGM1) for the tile. The starting canopy is
 # measured over it, so a tile without one - mostly coast and border - is not
 # processed.
-message("reading dgm1 index")
+cli_progress_step("Reading the dgm1 tile index")
 dgm1_ids <- st_drop_geometry(st_read(paste0("/vsicurl/", dgm1_url), quiet = TRUE))$tile_id
 tiles$dgm1 <- tiles$tile_id %in% dgm1_ids
 
@@ -117,17 +122,19 @@ tiles <- tiles[order(tiles$tile_id), ]
 
 # Written beside the old file and swapped in at the end, so a failed build
 # leaves the old coverage in place.
+cli_progress_step("Writing {out_file}")
 tmp <- sub("[.]gpkg$", "_part.gpkg", out_file)
 unlink(tmp)
 st_write(tiles, tmp, layer = "tiles", quiet = TRUE)
 st_write(flights, tmp, layer = "flights", append = TRUE, quiet = TRUE)
 if (file.exists(out_file) && !file.remove(out_file))
-  stop(out_file, " is in use (open in QGIS?). Close it and run again; the new ",
-       "coverage is in ", tmp, ".", call. = FALSE)
+  cli_abort(c("{.file {out_file}} is in use (open in QGIS?).",
+              i = "Close it and run again; the new coverage is in {.file {tmp}}."))
 invisible(file.rename(tmp, out_file))
 if (!is.null(state)) write.csv(state, state_file, row.names = FALSE)
+cli_progress_done()
 
-message(nrow(tiles), " tiles, ", sum(tiles$n_epochs >= 2), " with two or more epochs, ",
-        sum(tiles$comparable), " of them with DGM1 (comparable), ",
-        sum(tiles$lidar_only), " with two or more lidar years")
-print(table(n_epochs = tiles$n_epochs))
+cli_alert_success(paste(
+  "{nrow(tiles)} tiles, {sum(tiles$n_epochs >= 2)} with two or more epochs,",
+  "{sum(tiles$comparable)} of them with DGM1 (comparable),",
+  "{sum(tiles$lidar_only)} with two or more lidar years"))

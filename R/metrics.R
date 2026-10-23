@@ -1,7 +1,7 @@
-# A loss raster - the three layers loss_year, observed and canopy that the
-# statewide tiles and the plot circles are both written as - turned into areas.
-# Shared so a tile's row and a plot's row are measured the same way. terra is
-# the caller's to load.
+# A loss raster turned into areas. It needs the layers loss_year, observed and
+# canopy, which the statewide tiles and the plot circles both have (any other
+# layers are ignored). Shared so a tile's row and a plot's row are measured the
+# same way. terra is the caller's to load.
 #
 # Three areas, because a share on its own would hide what it was taken from:
 #

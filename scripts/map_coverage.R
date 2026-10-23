@@ -31,4 +31,4 @@ draw <- function(field, title, file) {
 draw("n_epochs", "Usable surveys per 1 × 1 km tile", "coverage_epochs.png")
 draw("dom1_n", "Lidar surveys (DOM1) per tile", "coverage_lidar.png")
 draw("last_epoch", "Year of the latest usable survey", "coverage_latest.png")
-message("maps written to ", out_dir)
+cli::cli_alert_success("Coverage maps written to {.file {out_dir}}")

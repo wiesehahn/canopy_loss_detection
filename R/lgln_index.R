@@ -23,13 +23,25 @@ lgln_index_state <- function() {
 
 # TRUE if the coverage file is missing, or was built from other index content
 # than LGLN serves now. `state_file` holds the ETags of the last build; offline,
-# the coverage counts as current.
+# the coverage counts as current. Says which it is (cli).
 lgln_coverage_outdated <- function(coverage_file, state_file) {
-  if (!file.exists(coverage_file) || !file.exists(state_file)) return(TRUE)
+  if (!file.exists(coverage_file)) {
+    cli::cli_alert_info("No coverage yet: building it from LGLN's tile indexes")
+    return(TRUE)
+  }
+  if (!file.exists(state_file)) {
+    cli::cli_alert_info("Not known which index version the coverage was built from: rebuilding it")
+    return(TRUE)
+  }
   now <- lgln_index_state()
   if (is.null(now)) {
-    message("LGLN tile indexes not reachable; keeping the coverage as it is")
+    cli::cli_alert_warning("LGLN's tile indexes cannot be reached: keeping the coverage as it is")
     return(FALSE)
   }
-  !identical(read.csv(state_file)$etag, now$etag)
+  if (!identical(read.csv(state_file)$etag, now$etag)) {
+    cli::cli_alert_info("LGLN's tile indexes have changed: rebuilding the coverage")
+    return(TRUE)
+  }
+  cli::cli_alert_success("Coverage matches LGLN's tile indexes: skipped")
+  FALSE
 }

@@ -1,7 +1,14 @@
 # The detection settings, in one place, so the statewide tiles and the single
 # tile images cannot drift apart. docs/findings.md says how each was chosen.
+#
+# process_tiles.R redoes every tile made with other settings than these, so
+# changing one here redoes the state (about two days). `method` is there for
+# changes to the code in R/ that alter the results: raise it and they are
+# redone too. Changes that leave the results alone (comments, speed) need no
+# new number.
 
 detection_params <- list(
+  method        = 1,      # raise after a change in R/ that alters the results
   res_m         = 1,      # m, DOM1's native grid; bDOM is resampled onto it
   veg_months    = 5:10,   # vegetation period, bDOM only
   min_cover     = 0.05,   # smallest share of the tile an epoch must reach
@@ -28,3 +35,9 @@ detection_params <- list(
     pine      = list(codes = c(7, 11),    A = 0.0568, B = 1.371),  # Wiedemann 1943
     broadleaf = list(codes = c(1:4, 8:10), A = 0.0306, B = 1.510), # Schober 1967 (beech)
     unknown   = list(codes = 0)))
+
+# A short fingerprint of a settings list, stored with each tile's result so
+# process_tiles.R can tell which tiles were made with other settings.
+params_id <- function(p) {
+  substr(tools::sha256sum(bytes = charToRaw(paste(deparse(p), collapse = ""))), 1, 12)
+}

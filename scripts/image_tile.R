@@ -43,20 +43,22 @@ if (is.null(out_path)) {
   out_path <- file.path("data/images", paste0("canopy_loss_", tile_id, ".webp"))
 }
 
-message("tile ", tile_id)
+cli::cli_progress_step("Detecting loss in tile {tile_id}")
 tl <- tile_loss(tile_id, p)
+cli::cli_progress_done()
 print(tl$ep[c("product", "year", "first_date", "last_date", "coverage", "used", "reason")],
       row.names = FALSE)
 if (is.null(tl$year))
-  stop("Tile ", tile_id, " cannot be measured: ",
-       setdiff(unique(tl$ep$reason), "")[1], call. = FALSE)
+  cli::cli_abort("Tile {tile_id} cannot be measured: {tl$reason}")
 
 # Losses dated outside the colour ramp would not be drawn at all, which reads
 # as no loss. Say so rather than hide them; widen year_span if they matter.
 outside <- unlist(global(tl$year < year_span[1] | tl$year > year_span[2], "sum",
                          na.rm = TRUE))
 if (outside > 0)
-  message("  ", outside, " loss cells dated outside year_span, not drawn")
+  cli::cli_alert_warning("{outside} loss cells dated outside year_span, not drawn")
 
+cli::cli_progress_step("Drawing the image")
 render_loss(tl$year, crop(first_dom1(tl), tile_ext(tile_id)), out_path, year_span)
-message("written to ", normalizePath(out_path))
+cli::cli_progress_done()
+cli::cli_alert_success("Written to {.file {normalizePath(out_path)}}")
