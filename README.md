@@ -90,7 +90,7 @@ source("run.R")
 This runs three steps:
 
 1. List which surveys exist for each tile, and download the building footprints and the tree species map (once, about 700 and 600 MB).
-2. Detect loss in every tile, in parallel. This step takes about two days for the whole state. It can be stopped and restarted at any time.
+2. Detect loss in every tile, in parallel. This step takes about 2–3 days for the whole state with a fast internet connection, since every survey is streamed from LGLN. It can be stopped and restarted at any time.
 3. Build the maps and the tile table from the tiles finished so far.
 
 **Run it again** at any time: each step only does what is new, and says what it skips.
@@ -108,7 +108,7 @@ options(cld.bbox = c(598000, 5739000, 603000, 5744000))  # xmin, ymin, xmax, yma
 source("run.R")
 ```
 
-`cld.tile_ids` selects single tiles instead, and `cld.workers` sets the number of parallel workers (default: half the CPU cores).
+`cld.tile_ids` selects single tiles instead, and `cld.workers` sets the number of parallel workers (default: half the CPU cores, at most 16). More workers do not help: every tile is streamed from LGLN, and beyond about 16 workers the download, not the CPU, sets the pace.
 
 **Look at a single tile:**
 

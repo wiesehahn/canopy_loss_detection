@@ -25,7 +25,7 @@
 # Options, set before sourcing (see scripts/process_tiles.R):
 #   options(cld.bbox = c(xmin, ymin, xmax, ymax))  only tiles in this box (EPSG:25832)
 #   options(cld.tile_ids = c("326005741"))         only these tiles
-#   options(cld.workers = 4)                       parallel workers, default half the cores
+#   options(cld.workers = 4)                       parallel workers, default half the cores, at most 16
 library(cli)
 
 source("R/params.R")

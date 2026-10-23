@@ -16,6 +16,71 @@ The canopy surface from a later lidar survey serves as a reference. Lidar measur
   - Changes between the last bDOM and the reference survey cannot have been detected, so "found" is a lower bound.
   - The reference lidar flights are mostly in March (leaf-off). In broadleaf stands they can read the canopy lower, which would count some false detections as confirmed.
 
+## 2026-10-23 – Statewide sample: run time, reproducibility, first figures
+
+**Question:** before the full run: how long will it take, does it run everywhere in the state, does a second machine reproduce the results, and what does a sample say about Lower Saxony?
+
+**Setup:**
+- **Sample:** 500 of the 41,473 comparable tiles, stratified by forest share. The share is the fraction of 10 m cells with a species in the 2018 tree species map, per tile. Random within each stratum, `set.seed(20261023)` on the sorted tile IDs.
+
+  | forest share | tiles in the state | sampled | weight |
+  |---|---|---|---|
+  | under 10 % | 15,765 | 100 | 157.7 |
+  | 10–50 % | 17,829 | 200 | 89.1 |
+  | 50 % or more | 7,879 | 200 | 39.4 |
+
+- **Machine:** AMD Threadripper PRO 5975WX (32 cores, 64 threads, 256 GB), set up from the README alone. Package versions differ from the development machine: terra 1.9-50, sf 1.1-3, lidR 4.3.3, gdalraster 2.7.0, GDAL 3.12.1.
+- **Run:** through `run.R` with `cld.tile_ids`, in two random halves with different worker counts. The project folder was on a network share; every tile was streamed from LGLN over a fast connection.
+- **Reproducibility:** 2 pilot tiles (326005741, 325985739) were redone on that machine and compared cell by cell with the originals.
+
+**Results:**
+- **Reproducibility:** identical, in all 7 bands and the table rows, despite the different package and GDAL versions.
+- **Robustness:** all 500 tiles measured, none skipped. Two problems came up, both at 64 workers:
+  - one tile failed reading from LGLN (`[toMemory] cannot read values`);
+  - one worker process died, which aborted the whole run.
+  
+  Both led to changes in `process_tiles.R` (see Decision). The failed tile was measured on the next run.
+- **Run time:** the network and LGLN's servers set the pace, not the CPU. More workers make each tile slower.
+
+  | workers | tiles | s per tile per worker | s per tile overall |
+  |---|---|---|---|
+  | 6 (development machine, 6 cores) | 25 | about 45 | about 9 |
+  | 16 | 210 | 73 (median 68) | **4.7** |
+  | 32 | 252 | 177 (median 152) | 5.9 |
+  | 64 | 40 | 333 | about 7, then failures |
+
+  - At 16 workers the full run takes about **2.3 days** (41,473 × 4.7 s). On a slower connection it takes longer.
+  - Time per tile depends mostly on the number of epochs used: on average 50 s with 2 epochs, 80 s with 3 and 120 s with 4 (16 workers). Forest share and the amount of loss hardly matter.
+- **Observed share:** 25 tiles observed less than 90 % of their area (77–90 %). These are towns, where buildings are left out, and survey edges.
+- **Preliminary figures for the 41,473 comparable tiles** (stratum-weighted, 95 % intervals):
+
+  | | estimate |
+  |---|---|
+  | starting canopy (above 5 m, inside and outside forest) | 920,000 ha (892,000–949,000) |
+  | lost canopy | 85,000 ha (77,000–94,000) |
+  | share of canopy lost | **9.2 %** (8.3–10.0) |
+  | lost trees | 18.7 million (17.1–20.3), 219 per ha of loss |
+
+  - **Loss by year of detection** (the first survey showing it; when it happened lies between that survey and the one before):
+
+    | 2016–17 | 2018 | 2019 | 2020 | 2021 | 2022 | 2023 | 2024 | 2025–26 |
+    |---|---|---|---|---|---|---|---|---|
+    | 86 ha | 2,800 ha | 560 ha | 6,700 ha | 9,500 ha | 17,100 ha | 21,300 ha | 21,700 ha | 5,700 ha |
+
+    Survey years differ by region, so these are not annual loss rates. Most losses since 2018 are detected only by the photo surveys of 2021–2024.
+  - **Data situation:** the share lost is about the same on lidar-only tiles (9.5 %) and on tiles with photo surveys (8.9 %).
+  - **Lost trees by species:** spruce 27.5 %, pine 23.0 %, oak 9.5 %, beech 5.5 %, birch 4.1 %, other broadleaf 4.0 %, alder 3.0 %, larch 1.9 %, others under 1 %. 19.4 % have no species: trees outside the map's forest, or in areas disturbed before 2018.
+  - **Where:** high shares in the Harz, the Solling and the Weserbergland (up to 68 % of the canopy on a tile); low shares in the north and on farmland. A few tiles with little canopy show high shares from small losses.
+  - **Loss includes harvesting:** any lasting gap of 20 m² or more counts, not only damage.
+
+**Decision:**
+- `process_tiles.R`:
+  - a failed tile is retried once after 15 s;
+  - a worker that dies is replaced and the run continues. A tile that was in a worker during two such deaths is logged as failed;
+  - the default number of workers is capped at 16.
+- `build_outputs.R` writes the mosaics as text from the tile IDs. This takes 0.3 s for all tiles; gdalbuildvrt took 30 s for 350 tiles over the network share. The paths are relative, so the folder can be reached under any path.
+- **Full run:** on the Threadripper, where the default is now 16 workers, about 2.3 days. The 500 sample tiles and earlier test tiles are already done and are skipped.
+
 ## 2026-10-22 – How many tiles allow regrowth analysis
 
 **Question:** regrowth needs a survey before the loss, one that shows it, and a later one, ideally lidar. On how many tiles does that exist?
@@ -311,7 +376,7 @@ Same 25 tiles, with the original method (levelled, cubic bDOM).
 
 ## Open
 
-- **Statewide run:** start it (41,473 tiles).
+- **Statewide run:** start it on the Threadripper with 16 workers, about 2.3 days (see 2026-10-23). 561 tiles are done.
 - **Regrowth:** wait for the next lidar cycle; meanwhile test bDOM for young regrowth (see 2026-10-22).
 - **Plots repo:** re-run its outputs (`data/*/canopy_loss/`), which still hold levelled, cubic results.
 - **Lost trees:**

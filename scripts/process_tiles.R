@@ -50,14 +50,19 @@
 #
 # Tiles come from data/lgln_coverage.gpkg (get_lgln_coverage.R), `comparable`
 # ones only: two epochs or more, and a DGM1 for the starting canopy. Every tile
-# is read remotely, nothing is downloaded, so the run is bound partly by the
-# network; beyond about 12 workers it got no faster in testing.
+# is read remotely, nothing is downloaded, so LGLN's servers and the network
+# set the pace: in testing, 4.7 s per tile at 16 workers, slower at 32, and at
+# 64 reads began to fail (docs/findings.md, 2026-10-23). Hence at most 16 by
+# default.
+# A tile that fails is tried once more after a pause, and a worker that dies
+# is replaced, so a run of several days does not stop on one of either.
 # build_outputs.R turns the results into a mosaic and a table.
 #
 # Usually run through run.R. Options, set before sourcing:
 #   options(cld.bbox = c(xmin, ymin, xmax, ymax))  only tiles in this box (EPSG:25832)
 #   options(cld.tile_ids = c("326005741"))         only these tiles
-#   options(cld.workers = 4)                       parallel workers; 1 runs here, for debugging
+#   options(cld.workers = 4)                       parallel workers, default half the
+#                                                  cores, at most 16; 1 runs here, for debugging
 library(sf)
 library(terra)
 library(rvtr)
@@ -70,7 +75,7 @@ p         <- detection_params  # see R/params.R
 pid       <- params_id(p)
 bbox      <- getOption("cld.bbox")
 tile_ids  <- getOption("cld.tile_ids")
-n_workers <- getOption("cld.workers", max(1, detectCores() %/% 2))
+n_workers <- getOption("cld.workers", min(16, max(1, detectCores() %/% 2)))
 
 coverage_file <- "data/lgln_coverage.gpkg"
 tile_dir      <- "data/tiles"
@@ -193,17 +198,25 @@ process_tile <- function(tile_id) {
   list(row = row, ep = cbind(tile_id = tile_id, tl$ep))
 }
 
-# One tile, never stopping the run: an error is returned for the run log. The
-# session's temp folder is emptied after every tile - the grids, VRTs and
-# terra's own scratch files are a few MB a tile, which over the state would
-# fill a disk.
+# One tile, never stopping the run: an error is returned for the run log. A
+# read from LGLN can fail under load, so a failed tile is tried once more after
+# a pause before it counts as failed. The session's temp folder is emptied
+# after every attempt - the grids, VRTs and terra's own scratch files are a few
+# MB a tile, which over the state would fill a disk.
 run_one <- function(tile_id) {
   t0 <- Sys.time()
-  out <- tryCatch(suppressMessages(process_tile(tile_id)),
-                  error = function(e)
-                    list(row = NULL, ep = NULL,
-                         error = gsub("\\s+", " ", conditionMessage(e))))
-  unlink(list.files(tempdir(), full.names = TRUE), recursive = TRUE)
+  attempt <- function() {
+    out <- tryCatch(suppressMessages(process_tile(tile_id)), error = \(e) e)
+    unlink(list.files(tempdir(), full.names = TRUE), recursive = TRUE)
+    out
+  }
+  out <- attempt()
+  if (inherits(out, "error")) {
+    Sys.sleep(15)
+    out <- attempt()
+  }
+  if (inherits(out, "error"))
+    out <- list(row = NULL, ep = NULL, error = gsub("\\s+", " ", conditionMessage(out)))
   out$run <- data.frame(
     tile_id = tile_id,
     status = if (is.null(out$row)) "failed" else out$row$status,
@@ -239,9 +252,60 @@ record <- function(out) {
   }
 }
 
-# Every tile, handed to the next free worker, and recorded and counted as soon
-# as it is back - so a stopped run loses only the tiles still in the workers.
-# This is what parLapplyLB() does inside, minus waiting for the whole list.
+# The workers, each with the packages, the functions in R/ and this script's
+# settings. Their process IDs are kept, so stop_workers() can end them even
+# when one no longer answers.
+start_workers <- function() {
+  cl <- makeCluster(n_workers)
+  worker_pids <<- unlist(clusterCall(cl, Sys.getpid))
+  clusterCall(cl, setwd, getwd())
+  clusterEvalQ(cl, {
+    library(terra)
+    library(rvtr)
+    invisible(lapply(list.files("R", "[.]R$", full.names = TRUE), source))
+    terraOptions(progress = 0)
+    NULL
+  })
+  clusterExport(cl, c("p", "tile_dir", "process_tile", "run_one", "years_text"),
+                envir = globalenv())
+  cl
+}
+stop_workers <- function() {
+  try(stopCluster(cl), silent = TRUE)
+  tools::pskill(worker_pids)
+  for (node in cl) try(close(node$con), silent = TRUE)
+}
+
+# Tiles handed to the workers one by one, each to the next that is free.
+send <- get("sendCall", asNamespace("parallel"))
+recv <- get("recvOneResult", asNamespace("parallel"))
+# `on_send` is told every tile handed out.
+dispatch <- function(ids, done, on_send) {
+  sent <- 0
+  for (w in seq_len(min(n_workers, length(ids)))) {
+    sent <- sent + 1
+    on_send(ids[sent])
+    send(cl[[w]], run_one, list(ids[sent]), tag = sent)
+  }
+  for (k in seq_along(ids)) {
+    r <- recv(cl)
+    if (sent < length(ids)) {
+      sent <- sent + 1
+      on_send(ids[sent])
+      send(cl[[r$node]], run_one, list(ids[sent]), tag = sent)
+    }
+    if (inherits(r$value, "try-error")) stop(r$value, call. = FALSE)
+    done(r$value)
+  }
+}
+
+# Every tile, recorded and counted as soon as it is back - so a stopped run
+# loses only the tiles still in the workers. This is what parLapplyLB() does
+# inside, minus waiting for the whole list. A worker that dies (lost
+# connection) takes its tile with it: the workers are then restarted, and the
+# tiles not yet recorded are handed out again. A tile that was in a worker
+# during two such deaths is logged as failed, so it cannot stop the run; the
+# next run tries it again.
 run_all <- function(ids) {
   status <- c(measured = 0, skipped = 0, failed = 0)
   bar <- cli_progress_bar(
@@ -250,8 +314,10 @@ run_all <- function(ids) {
                    "· {status[['measured']]} measured · {status[['skipped']]} skipped",
                    "· {status[['failed']]} failed · {cli::pb_elapsed} · ETA {cli::pb_eta}"))
   cli_progress_update(id = bar, force = TRUE, set = 0)
+  recorded <- character()
   done <- function(out) {
     record(out)
+    recorded <<- c(recorded, out$run$tile_id)
     status[[out$run$status]] <<- status[[out$run$status]] + 1
     if (out$run$status == "failed")
       cli_alert_danger("{out$run$tile_id} failed: {out$run$error}")
@@ -261,21 +327,26 @@ run_all <- function(ids) {
   if (n_workers == 1) {
     for (id in ids) done(run_one(id))
   } else {
-    send <- get("sendCall", asNamespace("parallel"))
-    recv <- get("recvOneResult", asNamespace("parallel"))
-    sent <- 0
-    for (w in seq_len(min(n_workers, length(ids)))) {
-      sent <- sent + 1
-      send(cl[[w]], run_one, list(ids[sent]), tag = sent)
-    }
-    for (k in seq_along(ids)) {
-      r <- recv(cl)
-      if (sent < length(ids)) {
-        sent <- sent + 1
-        send(cl[[r$node]], run_one, list(ids[sent]), tag = sent)
-      }
-      if (inherits(r$value, "try-error")) stop(r$value, call. = FALSE)
-      done(r$value)
+    restarts <- 0
+    handed   <- character()
+    crashes  <- setNames(numeric(length(ids)), ids)
+    repeat {
+      lost <- tryCatch({
+        dispatch(setdiff(ids, recorded), done, \(id) handed <<- c(handed, id))
+        NULL
+      }, error = \(e) e)
+      if (is.null(lost)) break
+      restarts <- restarts + 1
+      if (restarts > 20) stop(lost)
+      cli_alert_warning(paste("A worker stopped ({conditionMessage(lost)}):",
+                              "restarting the workers ({restarts}) and carrying on"))
+      stop_workers()
+      in_worker <- setdiff(handed, recorded)
+      crashes[in_worker] <- crashes[in_worker] + 1
+      for (id in names(crashes)[crashes >= 2 & !names(crashes) %in% recorded])
+        done(list(run = data.frame(tile_id = id, status = "failed", seconds = NA,
+                                   error = "its worker died twice while on it")))
+      cl <<- start_workers()
     }
   }
   cli_progress_done(id = bar)
@@ -287,16 +358,7 @@ if (!length(todo)) {
 } else {
   if (n_workers > 1) {
     cli_progress_step("Starting {n_workers} workers")
-    cl <- makeCluster(n_workers)
-    clusterCall(cl, setwd, getwd())
-    clusterEvalQ(cl, {
-      library(terra)
-      library(rvtr)
-      invisible(lapply(list.files("R", "[.]R$", full.names = TRUE), source))
-      terraOptions(progress = 0)
-      NULL
-    })
-    clusterExport(cl, c("p", "tile_dir", "process_tile", "run_one", "years_text"))
+    cl <- start_workers()
     cli_progress_done()
   }
   cli_alert_info("A tile takes about 30 s per worker; progress shows as each one finishes")
@@ -307,7 +369,7 @@ if (!length(todo)) {
       cli_alert_warning("Stopped. Finished tiles are kept; the next run picks up the rest.")
       NULL
     },
-    finally = if (n_workers > 1) stopCluster(cl))
+    finally = if (n_workers > 1) stop_workers())
   if (!is.null(status) && status[["failed"]])
     cli_alert_warning("{status[['failed']]} tile{?s} failed (see {.file {run_log}}); the next run tries again")
 }

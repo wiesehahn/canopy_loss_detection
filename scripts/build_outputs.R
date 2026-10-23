@@ -20,7 +20,6 @@
 # whole state. Skipped when the outputs are newer than the tables and the
 # coverage they come from.
 library(sf)
-library(terra)
 library(cli)
 
 coverage_file <- "data/lgln_coverage.gpkg"
@@ -34,6 +33,40 @@ out_file      <- "data/canopy_loss_tiles.gpkg"
 layers <- c(year = 1, observed = 2, canopy = 3, from = 4, species = 5, crown = 6,
             tree_top = 7)
 vrt_files <- paste0("data/canopy_loss_", names(layers), ".vrt")
+
+# A mosaic VRT, written as text straight from the tile IDs. Every tile raster
+# has the same layout - 1000 x 1000 cells of 1 m, UInt32, process_tiles.R's
+# NoData - and its lower-left corner is in its ID (R/tiles.R), so no tile has to
+# be opened. gdalbuildvrt would open every tile for every band on every build,
+# about an hour statewide. The paths are relative to the VRT in data/, so the
+# folder can be reached under any path.
+write_mosaic <- function(ids, band, file) {
+  x0 <- as.numeric(substr(ids, 3, 5)) * 1000         # left edge
+  y1 <- as.numeric(substr(ids, 6, 9)) * 1000 + 1000  # top edge
+  xmin <- min(x0)
+  ymax <- max(y1)
+  sources <- sprintf(paste0(
+    '    <ComplexSource>\n',
+    '      <SourceFilename relativeToVRT="1">tiles/%s.tif</SourceFilename>\n',
+    '      <SourceBand>%d</SourceBand>\n',
+    '      <SourceProperties RasterXSize="1000" RasterYSize="1000" DataType="UInt32" ',
+    'BlockXSize="1000" BlockYSize="1" />\n',
+    '      <SrcRect xOff="0" yOff="0" xSize="1000" ySize="1000" />\n',
+    '      <DstRect xOff="%.0f" yOff="%.0f" xSize="1000" ySize="1000" />\n',
+    '      <NODATA>4294967295</NODATA>\n',
+    '    </ComplexSource>'), ids, band, x0 - xmin, ymax - y1)
+  writeLines(c(
+    sprintf('<VRTDataset rasterXSize="%.0f" rasterYSize="%.0f">',
+            max(x0) + 1000 - xmin, ymax - min(y1) + 1000),
+    sprintf('  <SRS dataAxisToSRSAxisMapping="1,2">%s</SRS>', st_crs(25832)$wkt),
+    sprintf('  <GeoTransform>%.0f, 1, 0, %.0f, 0, -1</GeoTransform>', xmin, ymax),
+    '  <VRTRasterBand dataType="UInt32" band="1">',
+    '    <NoDataValue>4294967295</NoDataValue>',
+    '    <ColorInterp>Gray</ColorInterp>',
+    sources,
+    '  </VRTRasterBand>',
+    '</VRTDataset>'), file)
+}
 
 inputs <- c(coverage_file, result_file, epoch_file, run_log)
 if (!file.exists(result_file)) {
@@ -50,13 +83,10 @@ if (!file.exists(result_file)) {
   # The mosaics, over the measured tiles only: a raster left behind by a tile
   # that is being redone, or that failed, stays out.
   measured <- results$tile_id[results$status == "measured"]
-  tile_files <- file.path(tile_dir, paste0(measured, ".tif"))
-  tile_files <- tile_files[file.exists(tile_files)]
-  cli_progress_step("Mosaics of {length(tile_files)} measured tile{?s}")
-  if (length(tile_files))
+  cli_progress_step("Mosaics of {length(measured)} measured tile{?s}")
+  if (length(measured))
     for (l in names(layers))
-      vrt(tile_files, paste0("data/canopy_loss_", l, ".vrt"),
-          options = c("-b", layers[[l]]), overwrite = TRUE)
+      write_mosaic(measured, layers[[l]], paste0("data/canopy_loss_", l, ".vrt"))
 
   # The loss per year, from "2018:1234;2022:567" to a column per year, over
   # every year that lost anything in some tile.

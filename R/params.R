@@ -2,7 +2,7 @@
 # tile images cannot drift apart. docs/findings.md says how each was chosen.
 #
 # process_tiles.R redoes every tile made with other settings than these, so
-# changing one here redoes the state (about two days). `method` is there for
+# changing one here redoes the state (2-3 days). `method` is there for
 # changes to the code in R/ that alter the results: raise it and they are
 # redone too. Changes that leave the results alone (comments, speed) need no
 # new number.
