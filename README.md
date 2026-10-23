@@ -56,6 +56,8 @@ The south was mostly surveyed only once so far and cannot be compared yet. Along
 - **Mixed data sources:** lidar and photo-based surfaces do not measure the canopy identically. Comparisons that involve a photo-based survey are less reliable than lidar against lidar.
 - **The latest survey is the least certain:** a loss can only be confirmed by a later survey, and the most recent one has none.
 - **Coverage:** tiles with fewer than two usable surveys, or without an LGLN terrain model (mostly coast and border), are not processed.
+- **No cause:** a loss is any lasting gap of 20 m² or more, whether from storm, drought, bark beetle, salvage logging or regular harvesting. The method does not tell them apart.
+- **Standing deadwood is not loss:** dead trees that are still standing keep their height in the surfaces, so they are not detected. This matters mainly in the Harz National Park, where dead spruce is left standing.
 - **Lost trees are an estimate:** from 1 m surfaces, neighbouring crowns can merge or one crown can split. In tests about two thirds of clearly single crowns got exactly one tree. Losses with no lidar survey before them get no trees, and trees outside the forest mostly have no species.
 
 ## Project structure

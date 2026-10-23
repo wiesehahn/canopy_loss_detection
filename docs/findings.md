@@ -68,10 +68,51 @@ The canopy surface from a later lidar survey serves as a reference. Lidar measur
     | 86 ha | 2,800 ha | 560 ha | 6,700 ha | 9,500 ha | 17,100 ha | 21,300 ha | 21,700 ha | 5,700 ha |
 
     Survey years differ by region, so these are not annual loss rates. Most losses since 2018 are detected only by the photo surveys of 2021–2024.
-  - **Data situation:** the share lost is about the same on lidar-only tiles (9.5 %) and on tiles with photo surveys (8.9 %).
-  - **Lost trees by species:** spruce 27.5 %, pine 23.0 %, oak 9.5 %, beech 5.5 %, birch 4.1 %, other broadleaf 4.0 %, alder 3.0 %, larch 1.9 %, others under 1 %. 19.4 % have no species: trees outside the map's forest, or in areas disturbed before 2018.
+  - **Rate per year:** the surveys of a tile span 7.6 years on average (canopy-weighted), typically from 2013–2017 to 2021–2024. Divided by that span, the loss is **1.2 % of the canopy per year**.
+  - **By region, stratum and data situation** (stratum-weighted):
+
+    | | tiles | canopy | lost | share lost | per year |
+    |---|---|---|---|---|---|
+    | all | 500 | 920,000 ha | 84,500 ha | 9.2 % | 1.2 % |
+    | south (below 5,800 km N: Harz, Solling, Weserbergland) | 90 | 186,000 ha | 25,600 ha | 13.8 % | **2.3 %** |
+    | north (lowlands) | 410 | 734,000 ha | 58,900 ha | 8.0 % | 1.0 % |
+    | forest under 10 % | 100 | 84,000 ha | 7,800 ha | 9.3 % | 1.2 % |
+    | forest 10–50 % | 200 | 341,000 ha | 27,900 ha | 8.2 % | 1.1 % |
+    | forest 50 % or more | 200 | 496,000 ha | 48,800 ha | 9.8 % | 1.3 % |
+    | lidar only | 239 | 409,000 ha | 38,800 ha | 9.5 % | 1.1 % |
+    | with photo surveys | 261 | 512,000 ha | 45,700 ha | 8.9 % | 1.3 % |
+
+    - The south holds 20 % of the canopy and 30 % of the loss.
+    - Tiles with little forest lose their canopy (trees outside the forest) at the same rate as forest tiles.
+    - Lidar-only tiles and tiles with photo surveys differ little, so at this level the photo surveys do not inflate the loss.
+  - **Concentration:** the 5 % of tiles with the most loss hold 30 % of it, the top 10 % hold 45 %. Elsewhere the loss is low and spread out.
+  - **Lost trees by species,** against each species' share of the forest area in the 2018 map on the same tiles (trees with a species only):
+
+    | species | forest area | lost trees | ratio |
+    |---|---|---|---|
+    | pine | 36.1 % | 28.6 % | 0.8 |
+    | oak | 18.3 % | 11.8 % | 0.6 |
+    | spruce | 12.6 % | 34.2 % | **2.7** |
+    | beech | 10.5 % | 6.8 % | 0.65 |
+    | birch | 5.6 % | 5.1 % | 0.9 |
+    | other broadleaf | 5.3 % | 5.0 % | 0.9 |
+    | alder | 5.0 % | 3.8 % | 0.8 |
+    | larch | 3.5 % | 2.3 % | 0.7 |
+    | Douglas fir | 1.7 % | 1.0 % | 0.6 |
+
+    - Ash, maple and fir are too rare to compare.
+    - This compares tree counts with area. Conifers have smaller crowns, so more trees per ha, which overstates conifers somewhat.
+    - 19.4 % of the lost trees have no species: trees outside the map's forest, or in areas disturbed before 2018.
+  - **Lost tree heights:** 7 % up to 10 m, 42 % 10–20 m, 44 % 20–30 m, 8 % above 30 m. The loss is mostly in mature stands.
   - **Where:** high shares in the Harz, the Solling and the Weserbergland (up to 68 % of the canopy on a tile); low shares in the north and on farmland. A few tiles with little canopy show high shares from small losses.
-  - **Loss includes harvesting:** any lasting gap of 20 m² or more counts, not only damage.
+
+**Interpretation** (with forest-management knowledge, not separated by the method):
+- **Cause:** the detection does not tell natural disturbance from harvesting; any lasting gap of 20 m² or more counts. Most of the loss is still likely natural disturbance (drought, bark beetle, storm) and the salvage logging that follows, above all in spruce.
+- **Clustered loss is disturbance:** clear cuts are not allowed in German forests, so large contiguous losses point to disturbance and salvage logging. That fits the concentration of loss in few tiles, the uplands and spruce.
+- **Pine:** pine lost less than its share of the forest, and its loss is more likely regular thinning, given its management and crown structure. The same probably holds for the low, spread-out background loss in the lowlands.
+- **Standing deadwood is not counted:** dead trees that still stand keep their height in the surfaces, so they are not loss. Disturbance is therefore larger than the canopy loss measured here. This matters mainly in the Harz National Park, where dead spruce is left standing, and even there most of the dead canopy has fallen by now.
+- **The totals understate Lower Saxony:** most of the south has only one survey so far and is not comparable yet, including upland forest with heavy losses. The figures cover the 41,473 comparable tiles only.
+- **Not validated statewide:** the thresholds were checked against later lidar mainly in the Harz.
 
 **Decision:**
 - `process_tiles.R`:
