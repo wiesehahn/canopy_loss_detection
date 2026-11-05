@@ -8,7 +8,8 @@
 # new number.
 
 detection_params <- list(
-  method        = 1,      # raise after a change in R/ that alters the results
+  method        = 2,      # raise after a change in R/ that alters the results
+                          # 2: lidar resets the loss reference (2026-11-05)
   res_m         = 1,      # m, DOM1's native grid; bDOM is resampled onto it
   veg_months    = 5:10,   # vegetation period, bDOM only
   min_cover     = 0.05,   # smallest share of the tile an epoch must reach

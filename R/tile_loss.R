@@ -58,7 +58,7 @@ tile_loss <- function(tile_id, p) {
     return(unusable("no epoch overlaps another"))
 
   year <- loss_year(d, used$year, p$loss_drop, p$open_radius, p$min_gap,
-                    p$regrowth) |>
+                    p$regrowth, lidar = used$product == "dsm") |>
     crop(tile)
   from <- loss_from(crop(srf, tile), used$year, year)
 

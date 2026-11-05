@@ -16,6 +16,47 @@ The canopy surface from a later lidar survey serves as a reference. Lidar measur
   - Changes between the last bDOM and the reference survey cannot have been detected, so "found" is a lower bound.
   - The reference lidar flights are mostly in March (leaf-off). In broadleaf stands they can read the canopy lower, which would count some false detections as confirmed.
 
+## 2026-11-05 – Lidar resets the loss reference
+
+**Question:** a loss was measured against the lowest height a cell ever had. Canopy that grew up and was then cut was missed: grown from 2 m to 14 m and cut back to 2 m is no drop below 2 m. How should the reference follow growth without letting bDOM errors in?
+
+**Setup:** 243 sample tiles with 3+ epochs (sample of 2026-10-23), bDOM 2025 left out (2026-10-29). Each rule against the current one, on the same surfaces. Loss cells checked against lidar where lidar exists before and after the loss: confirmed if the lowest lidar from the loss on is more than 5 m below the highest lidar before.
+
+| reference | loss added | of it, checkable by lidar: confirmed | 2–5 m | contradicted |
+|---|---|---|---|---|
+| lowest so far (current) | – | 99.0 % (of the current loss) | 0.6 % | 0.4 % |
+| last height, bDOM checked for implausible growth (tolerance 1–5 m) | +19 to +20 % | reference from lidar: 97 %; from bDOM: 54 % | 31 % | 15 % (bDOM) |
+| **lidar resets it, bDOM can only lower it** | **+8.5 %** (+4.3 % statewide) | 99.4 % (only 0.1 ha checkable) | 0.6 % | 0 % |
+
+- **Last height with a growth check:** the check barely matters at any tolerance; it rejects only 3–8 % of bDOM cells. bDOM is not wrong by impossible jumps but reads the canopy 1–3 m too high, which passes any realistic growth check. Used as a reference, that pushes drops of 3–4 m over the 5 m threshold.
+- **Lidar reset:** adds loss only where a lidar survey lies between the start and the loss (e.g. lidar 2013, lidar 2018/2020, bDOM 2022), and never removes any. The additions mostly have no lidar after them yet, so they can rarely be checked. They are the same kind of loss as the current rule's (a bDOM drop below a lidar height), which lidar confirms at 99 %, and bDOM reading high makes their drops if anything larger.
+- **Not covered:** growth seen only by bDOM (bDOM 10 → bDOM 20 → bDOM 12) is still missed. The test above shows such bDOM-based references are unreliable.
+- **Plots repo:** 8 local plots with 3+ epochs: unchanged without a lidar survey in between, +100 to +2,300 m² with one.
+
+**Decision:** adopted. `loss_year()` takes `lidar` (which epochs are DOM1). A lidar epoch resets the reference to what it measured, a bDOM epoch can only lower it. `method` = 2 in `R/params.R`, so all finished tiles are redone. Both calls in lidar-biodiversity-plots pass `lidar`.
+
+## 2026-10-29 – bDOM 2025 about 40 m too high (data error, to clarify with LGLN)
+
+**Found:** while testing the loss rule, a tile showed the 2025 bDOM about 40 m above all earlier surveys.
+
+**Check:** median height difference of a bDOM against the survey before it, on 4 tiles per year:
+
+| bDOM year | difference |
+|---|---|
+| 2021–2024 | −0.1 to +0.5 m (up to 2.3 m where the stand changed) |
+| **2025** | **+38 to +41 m**, on every tile and every usable flight date (24/25 Sept, 19 and 31 Oct 2025) |
+| 2026 | −0.2 to 0 m |
+
+- **Likely cause:** 40 m is the height of the geoid above the ellipsoid in northern Germany, so the 2025 bDOM seems to be delivered in ellipsoidal heights instead of heights above sea level (DHHN2016). The leaf-off flights of spring 2025 are not used, so they were not checked.
+- **Effect:** a loss has to stay down in all later surveys, so a later survey 40 m too high cancels every earlier loss. Tiles with a usable 2025 bDOM show no loss at all, even where lidar shows a clear drop.
+  - About 6,500 tiles statewide have a usable 2025 bDOM flight.
+  - 392 of the 2,494 tiles finished so far use one, so their results are wrong.
+  - Only 5 of the 500 sample tiles use one, so the sample estimates (2026-10-23) are barely affected, if slightly low.
+
+**Decision:** treated as a data error, not handled in the code. To be clarified with LGLN.
+- Once LGLN has corrected the files, the affected tiles have to be redone.
+- The change detection only notices new flight dates. If LGLN replaces the files under the same dates, drop the rows of the tiles that use bDOM 2025 (`epochs.csv`: product `bdom`, year 2025, `used`) from `tile_results.csv`, and run again.
+
 ## 2026-10-23 – Statewide sample: run time, reproducibility, first figures
 
 **Question:** before the full run: how long will it take, does it run everywhere in the state, does a second machine reproduce the results, and what does a sample say about Lower Saxony?
@@ -417,11 +458,13 @@ Same 25 tiles, with the original method (levelled, cubic bDOM).
 
 ## Open
 
-- **Statewide run:** start it on the Threadripper with 16 workers, about 2.3 days (see 2026-10-23). 561 tiles are done.
+- **bDOM 2025 height error:** clarify with LGLN (see 2026-10-29). The tiles that use it have wrong results until the files are corrected.
+- **Statewide run:** continue it on the Threadripper with 16 workers, about 2.3 days (see 2026-10-23). It stopped on 2026-10-23 with 2,494 tiles done. With `method` = 2 (lidar reset, 2026-11-05) all of them are redone, so it starts over: about 2.3 days for all 41,473.
 - **Regrowth:** wait for the next lidar cycle; meanwhile test bDOM for young regrowth (see 2026-10-22).
 - **Plots repo:** re-run its outputs (`data/*/canopy_loss/`), which still hold levelled, cubic results.
 - **Lost trees:**
   - crown post-processing: drop crowns of 5 pixels or less, and elongated ones (axis ratio below about 0.4);
   - a window for trees outside the forest;
   - a check against more point-cloud tiles.
-- **Grew up, then cut:** a tree that grew up after the first epoch and was then cut is missed, because the running floor stays at the old gap. This is a different case from the regrowth allowance, which tolerates regrowth after a loss.
+- **Grew up, then cut:** solved where lidar saw the growth (2026-11-05). Still missed where only bDOM saw it.
+- **Plots repo:** its outputs also need the lidar reset (both calls pass `lidar` now).

@@ -52,28 +52,40 @@ observed <- function(d) max(!is.na(d))
 # The test is an absolute drop only. A relative one - the drop must take away a
 # share of the stand's height - would miss trees lost over a lower canopy
 # layer, where the surface falls only as far as the layer beneath.
-loss_year <- function(d, years, loss_drop, open_radius, min_gap, regrowth) {
+#
+# `lidar` says for each epoch, the first included, whether it is lidar (DOM1).
+loss_year <- function(d, years, loss_drop, open_radius, min_gap, regrowth,
+                      lidar) {
+  n <- nlyr(d)
+  stopifnot(is.logical(lidar), length(lidar) == n + 1)
   # Each epoch's canopy height relative to the first, accumulated from the steps
   # so the last known value carries over a missing epoch.
   lev <- Reduce(\(prev, r) cover(prev + r, prev), as.list(d),
                 init = subst(d[[1]] * 0, NA, 0), accumulate = TRUE)
 
-  # A loss is a drop that lasts: the canopy has to end up below the lowest it
-  # had been, and stay there for every epoch after. A bDOM that missed the
-  # canopy fails that test from either side - one that reads the canopy too low
-  # is contradicted by the epochs after it, and one that reads it too high only
-  # lifts a single epoch, so the step back down never clears the running floor
-  # it is measured from. What it cannot see through is a bad last epoch, which
-  # has nothing after it to be contradicted by.
+  # The height each drop is measured from. A lidar epoch resets it to what it
+  # measured, so canopy that grew up and was then cut counts as lost. A bDOM
+  # epoch can only lower it, never raise it: bDOM tends to read the canopy a
+  # metre or more too high, and a reference raised by that pushes drops of
+  # 3-4 m over the threshold (checked against later lidar, about half of such
+  # losses were not confirmed, against 3 % where the reference was lidar;
+  # docs/findings.md, 2026-11-05). A bDOM that reads too high once therefore
+  # changes nothing, and one that reads too low is contradicted by the epochs
+  # after it.
   #
-  # A gap regrows, so each later epoch may stand up to `regrowth` m per year
-  # since the loss above where the loss left it and still count as lost.
-  lowest <- Reduce(\(prev, r) min(prev, r), head(lev, -1), accumulate = TRUE)
-  n <- nlyr(d)
+  # A loss is a drop below that reference that lasts: the canopy has to stay
+  # down for every epoch after. What this cannot see through is a bad last
+  # epoch, which has nothing after it to be contradicted by. A gap regrows, so
+  # each later epoch may stand up to `regrowth` m per year since the loss above
+  # where the loss left it and still count as lost.
+  ref <- list(lev[[1]])
+  for (k in seq_len(n)[-1])
+    ref[[k]] <- if (lidar[k]) cover(mask(lev[[k]], d[[k - 1]]), ref[[k - 1]])
+                else min(ref[[k - 1]], lev[[k]])
   after <- lapply(seq_len(n), \(k)
     Reduce(\(a, b) max(a, b),
            lapply(k:n, \(j) lev[[j + 1]] - regrowth * (years[j + 1] - years[k + 1]))))
-  drop <- rast(after) - rast(lowest)
+  drop <- rast(after) - rast(ref)
   loss <- mask(drop < loss_drop, d)
 
   # opening: erode then dilate, so a patch has to be wider than the kernel to

@@ -18,10 +18,10 @@ Each one records the height of whatever is on top, tree crowns in a forest. Comp
 1. **Collect the surveys.** For each 1 × 1 km tile, all available survey years are gathered. Photo-based surfaces are only used if they were flown in summer (May–October). Bare broadleaf crowns in winter cannot be matched and would look like lost forest.
 2. **Compare the years.** Each survey is compared with the previous one, cell by cell.
 3. **Decide what counts as loss.** A cell counts as lost when:
-   - its height drops by more than 5 m, and
+   - its height drops more than 5 m below the height it had before, and
    - it stays down in all later surveys, allowing for some regrowth.
 
-   A single survey that misreads the canopy is then contradicted by the next one and not counted.
+   "The height it had before" is the last lidar height, or lower if a photo-based survey since has shown it lower. Photo-based surveys never raise it: they tend to read the canopy a little too high. A single survey that misreads the canopy is contradicted by the next one and not counted.
 4. **Clean up.** Specks narrower than 3 m and patches smaller than 20 m² are removed. Each loss is dated to the first survey that shows it.
 5. **Leave out buildings.** Building footprints from the official cadastre (ALKIS) are removed, so every change counted is vegetation. Trees outside the forest, in gardens, along roads and in hedges, are kept.
 6. **Find the lost trees.** Within the lost area, single trees are found in the last lidar survey before the loss: tree tops as local height maxima, and the lost area split into their crowns. How far apart tops must be depends on height and species, following yield-table stand densities. Each tree gets the species of the [German tree species map 2018](https://doi.org/10.25625/XOZAGY) that most of its crown lies on.
