@@ -78,10 +78,10 @@ The functions in `R/` are also used by [lidar-biodiversity-plots](../lidar-biodi
 
 ```r
 install.packages(c("terra", "sf", "lidR", "gdalraster", "viridisLite", "cli", "remotes"))
-remotes::install_github("wiesehahn/rvtr@87afb2c")
+remotes::install_github("wiesehahn/rvtr@55a3b00")
 ```
 
-Tested with R 4.5.2, terra 1.8-93, sf 1.1-0 (GDAL 3.11.4, PROJ 9.7.0, GEOS 3.13.1), lidR 4.3.2, gdalraster 2.6.1, viridisLite 0.4.3, cli 3.6.6 and rvtr 0.1.0 (commit 87afb2c). Nothing else needs to be downloaded in advance: the surveys are streamed from LGLN while processing.
+Tested with R 4.5.2, terra 1.8-93, sf 1.1-0 (GDAL 3.11.4, PROJ 9.7.0, GEOS 3.13.1), lidR 4.3.2, gdalraster 2.6.1, viridisLite 0.4.3, cli 3.6.6 and rvtr 0.1.0 (commit 55a3b00). Nothing else needs to be downloaded in advance: the surveys are streamed from LGLN while processing.
 
 **Run everything**, from the project root:
 
@@ -98,7 +98,7 @@ This runs three steps:
 **Run it again** at any time: each step only does what is new, and says what it skips.
 
 - The survey list is rebuilt only when LGLN has published new data.
-- A tile is processed again only when LGLN has new flights for it, or when the settings in [`R/params.R`](R/params.R) have changed. After a code change in `R/` that alters the results, raise `method` there.
+- A tile is processed again only when LGLN has new flights for it, or when the settings in [`R/params.R`](R/params.R) have changed. After a change in `R/` or a new rvtr version that alters the results, raise `method` there.
 - The maps and the tile table are rebuilt only when tiles have changed.
 
 Failed tiles are retried on the next run; their errors are listed in `data/runs.csv`.

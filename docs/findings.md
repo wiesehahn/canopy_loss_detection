@@ -35,7 +35,31 @@ The canopy surface from a later lidar survey serves as a reference. Lidar measur
 
 **Decision:** adopted. `loss_year()` takes `lidar` (which epochs are DOM1). A lidar epoch resets the reference to what it measured, a bDOM epoch can only lower it. `method` = 2 in `R/params.R`, so all finished tiles are redone. Both calls in lidar-biodiversity-plots pass `lidar`.
 
-## 2026-10-29 – bDOM 2025 about 40 m too high (data error, to clarify with LGLN)
+## 2026-11-05 – The bDOM 2025 offset comes from rvtr, not from LGLN
+
+**Question:** what to report to LGLN about the 40 m offset of the 2025 bDOM (2026-10-29)?
+
+**Setup:**
+- 168 raw bDOM files, 3 per flight date from 2024 to 2026 (56 dates), read directly from LGLN, without rvtr.
+- On each, the 5 % quantile of bDOM − DGM1. Every tile has some open ground, where a correct bDOM lies on the DGM1.
+- The CRS stored in one file per flight month, and the same tiles once more through rvtr.
+
+**Results:**
+- **Raw files:** correct on every flight date, 2025 included. Over open ground they lie within ±0.5 m of the DGM1.
+- **Through rvtr:** the same 2025 files come out +39.6 to +41.1 m.
+- **Cause:**
+  - The autumn 2025 flights (24/25 Sept, 19 and 31 Oct 2025) are the only ones whose GeoTIFF carries a vertical CRS ("DHHN2016 height"); all others are plain EPSG:25832.
+  - rvtr's `.lgln_vrt()` warps to `t_srs = "EPSG:25832"`. GDAL promotes that to 3D with ellipsoidal heights and converts the DHHN2016 heights to it, adding the geoid height (about 40 m).
+  - With GDAL's `-novshift` the offset is gone (median 0.00 m against the raw file, GDAL 3.12.1).
+
+**Decision:**
+- Not a data error.
+- **Fixed in rvtr 55a3b00:** warps get `-novshift`, and mosaics are stamped plain EPSG:25832. The second change matters too: `buildVRT` used to drop the autumn 2025 files from mosaics that mixed them with other flights.
+- **Check after the fix:** on two tiles, bDOM 2025 lies at ground level over open ground like the other surveys, within 1 m.
+- **Here:** rvtr 55a3b00 pinned in the README; `method` = 3, so all tiles are redone.
+- **LGLN:** at most a note that the files are now described differently from earlier flights.
+
+## 2026-10-29 – bDOM 2025 about 40 m too high (cause found on 2026-11-05: rvtr, not LGLN)
 
 **Found:** while testing the loss rule, a tile showed the 2025 bDOM about 40 m above all earlier surveys.
 
@@ -47,15 +71,13 @@ The canopy surface from a later lidar survey serves as a reference. Lidar measur
 | **2025** | **+38 to +41 m**, on every tile and every usable flight date (24/25 Sept, 19 and 31 Oct 2025) |
 | 2026 | −0.2 to 0 m |
 
-- **Likely cause:** 40 m is the height of the geoid above the ellipsoid in northern Germany, so the 2025 bDOM seems to be delivered in ellipsoidal heights instead of heights above sea level (DHHN2016). The leaf-off flights of spring 2025 are not used, so they were not checked.
+- **Likely cause (wrong, see 2026-11-05):** 40 m is the height of the geoid above the ellipsoid in northern Germany, so the 2025 bDOM seemed to be delivered in ellipsoidal heights. The leaf-off flights of spring 2025 are not used, so they were not checked.
 - **Effect:** a loss has to stay down in all later surveys, so a later survey 40 m too high cancels every earlier loss. Tiles with a usable 2025 bDOM show no loss at all, even where lidar shows a clear drop.
   - About 6,500 tiles statewide have a usable 2025 bDOM flight.
   - 392 of the 2,494 tiles finished so far use one, so their results are wrong.
   - Only 5 of the 500 sample tiles use one, so the sample estimates (2026-10-23) are barely affected, if slightly low.
 
-**Decision:** treated as a data error, not handled in the code. To be clarified with LGLN.
-- Once LGLN has corrected the files, the affected tiles have to be redone.
-- The change detection only notices new flight dates. If LGLN replaces the files under the same dates, drop the rows of the tiles that use bDOM 2025 (`epochs.csv`: product `bdom`, year 2025, `used`) from `tile_results.csv`, and run again.
+**Decision:** treated as a data error, not handled in the code, to be clarified with LGLN. Superseded on 2026-11-05: the error is in rvtr, and the fix goes there.
 
 ## 2026-10-23 – Statewide sample: run time, reproducibility, first figures
 
@@ -458,8 +480,7 @@ Same 25 tiles, with the original method (levelled, cubic bDOM).
 
 ## Open
 
-- **bDOM 2025 height error:** clarify with LGLN (see 2026-10-29). The tiles that use it have wrong results until the files are corrected.
-- **Statewide run:** continue it on the Threadripper with 16 workers, about 2.3 days (see 2026-10-23). It stopped on 2026-10-23 with 2,494 tiles done. With `method` = 2 (lidar reset, 2026-11-05) all of them are redone, so it starts over: about 2.3 days for all 41,473.
+- **Statewide run:** continue it on the Threadripper with 16 workers, about 2.3 days (see 2026-10-23). It stopped on 2026-10-23 with 2,494 tiles done. With `method` = 3 (lidar reset and rvtr 55a3b00, 2026-11-05) all of them are redone, so it starts over: about 2.3 days for all 41,473. Install rvtr 55a3b00 on that machine first.
 - **Regrowth:** wait for the next lidar cycle; meanwhile test bDOM for young regrowth (see 2026-10-22).
 - **Plots repo:** re-run its outputs (`data/*/canopy_loss/`), which still hold levelled, cubic results.
 - **Lost trees:**

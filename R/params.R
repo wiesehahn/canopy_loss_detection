@@ -3,13 +3,14 @@
 #
 # process_tiles.R redoes every tile made with other settings than these, so
 # changing one here redoes the state (2-3 days). `method` is there for
-# changes to the code in R/ that alter the results: raise it and they are
-# redone too. Changes that leave the results alone (comments, speed) need no
+# changes to the code in R/, or to the rvtr version, that alter the results:
+# raise it and they are redone too. Changes that leave the results alone (comments, speed) need no
 # new number.
 
 detection_params <- list(
-  method        = 2,      # raise after a change in R/ that alters the results
+  method        = 3,      # raise after a change in R/ or rvtr that alters the results
                           # 2: lidar resets the loss reference (2026-11-05)
+                          # 3: rvtr 55a3b00, bDOM 2025 no longer 40 m high (2026-11-05)
   res_m         = 1,      # m, DOM1's native grid; bDOM is resampled onto it
   veg_months    = 5:10,   # vegetation period, bDOM only
   min_cover     = 0.05,   # smallest share of the tile an epoch must reach

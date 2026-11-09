@@ -46,7 +46,7 @@ One GeoTIFF per measured tile: 1000 × 1000 cells of 1 m, unsigned 32-bit intege
 
 ## Mosaics: `canopy_loss_<band>.vrt`
 
-`canopy_loss_year.vrt`, `canopy_loss_from.vrt`, `canopy_loss_observed.vrt`, `canopy_loss_canopy.vrt`, `canopy_loss_species.vrt`, `canopy_loss_crown.vrt` and `canopy_loss_tree_top.vrt` join one band of all tile rasters into a single statewide layer. The values are as above. They are small text files that point to the tiles, so they need `tiles/` next to them.
+`canopy_loss_year.vrt`, `canopy_loss_from.vrt`, `canopy_loss_observed.vrt`, `canopy_loss_canopy.vrt`, `canopy_loss_species.vrt`, `canopy_loss_crown.vrt` and `canopy_loss_tree_top.vrt` join one band of all tile rasters into a single statewide layer. The values are as above. They are small text files that point to the tiles, so they need `tiles/` next to them. The statistics inside them are for display only: a fixed value range and a mean and standard deviation estimated from 50 tiles. For exact values use the tiles or the tile table.
 
 ## Lost trees (bands 5–7)
 

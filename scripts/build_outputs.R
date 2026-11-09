@@ -16,9 +16,9 @@
 #                  DGM1, not processed yet, or what stopped it.
 #     tile_epochs  every finished tile's epoch table, bound together.
 #
-# Reads only the tables, not the rasters, so it takes seconds even for the
-# whole state. Skipped when the outputs are newer than the tables and the
-# coverage they come from.
+# Reads the tables and the headers of a few tiles, no pixels, so it takes
+# seconds even for the whole state. Skipped when the outputs are newer than the
+# tables and the coverage they come from.
 library(sf)
 library(cli)
 
@@ -34,13 +34,47 @@ layers <- c(year = 1, observed = 2, canopy = 3, from = 4, species = 5, crown = 6
             tree_top = 7)
 vrt_files <- paste0("data/canopy_loss_", names(layers), ".vrt")
 
+# Mean and standard deviation of each band over a sample of tiles, one row per
+# band, from the statistics process_tiles.R stored in each tile's header. Tiles
+# weigh in by their valid cells; a band empty in a tile has no statistics and is
+# left out. NA where no sampled tile has the band.
+sample_stats <- function(ids, n = 50) {
+  gdalraster::set_config_option("GTIFF_SRS_SOURCE", "EPSG")
+  on.exit(gdalraster::set_config_option("GTIFF_SRS_SOURCE", ""))
+  set.seed(20261109)
+  ids <- sort(ids)
+  read_tile <- function(id) {
+    ds <- methods::new(gdalraster::GDALRaster,
+                       file.path(tile_dir, paste0(id, ".tif")), read_only = TRUE)
+    on.exit(ds$close())
+    item <- \(b, key) as.numeric(ds$getMetadataItem(b, key, ""))
+    do.call(rbind, lapply(layers, \(b) c(m = item(b, "STATISTICS_MEAN"),
+                                         s = item(b, "STATISTICS_STDDEV"),
+                                         n = item(b, "STATISTICS_VALID_PERCENT"))))
+  }
+  tiles <- lapply(ids[sample(length(ids), min(n, length(ids)))], read_tile)
+  do.call(rbind, lapply(seq_along(layers), \(b) {
+    x <- do.call(rbind, lapply(tiles, \(t) t[b, ]))
+    x <- x[!is.na(x[, "m"]) & !is.na(x[, "s"]) & x[, "n"] > 0, , drop = FALSE]
+    m <- sum(x[, "n"] * x[, "m"]) / sum(x[, "n"])
+    v <- sum(x[, "n"] * (x[, "s"]^2 + x[, "m"]^2)) / sum(x[, "n"]) - m^2
+    c(mean = m, sd = sqrt(max(v, 0)))
+  })) |> `rownames<-`(names(layers))
+}
+
 # A mosaic VRT, written as text straight from the tile IDs. Every tile raster
 # has the same layout - 1000 x 1000 cells of 1 m, UInt32, process_tiles.R's
 # NoData - and its lower-left corner is in its ID (R/tiles.R), so no tile has to
 # be opened. gdalbuildvrt would open every tile for every band on every build,
 # about an hour statewide. The paths are relative to the VRT in data/, so the
 # folder can be reached under any path.
-write_mosaic <- function(ids, band, file) {
+#
+# `stats` (minimum, maximum, mean, sd) goes into the VRT. Without it GDAL
+# calculates a mosaic's statistics when QGIS opens it, tile by tile, and leaves
+# an .aux.xml beside every tile. Minimum and maximum are declared ranges, mean
+# and sd sampled estimates: exact ones would mean opening every tile, and they
+# only serve to display the mosaic.
+write_mosaic <- function(ids, band, file, stats) {
   x0 <- as.numeric(substr(ids, 3, 5)) * 1000         # left edge
   y1 <- as.numeric(substr(ids, 6, 9)) * 1000 + 1000  # top edge
   xmin <- min(x0)
@@ -63,6 +97,11 @@ write_mosaic <- function(ids, band, file) {
     '  <VRTRasterBand dataType="UInt32" band="1">',
     '    <NoDataValue>4294967295</NoDataValue>',
     '    <ColorInterp>Gray</ColorInterp>',
+    sprintf(paste0('    <Metadata><MDI key="STATISTICS_MINIMUM">%.10g</MDI>',
+                   '<MDI key="STATISTICS_MAXIMUM">%.10g</MDI>',
+                   '<MDI key="STATISTICS_MEAN">%.10g</MDI>',
+                   '<MDI key="STATISTICS_STDDEV">%.10g</MDI></Metadata>'),
+            stats[1], stats[2], stats[3], stats[4]),
     sources,
     '  </VRTRasterBand>',
     '</VRTDataset>'), file)
@@ -84,9 +123,19 @@ if (!file.exists(result_file)) {
   # that is being redone, or that failed, stays out.
   measured <- results$tile_id[results$status == "measured"]
   cli_progress_step("Mosaics of {length(measured)} measured tile{?s}")
-  if (length(measured))
-    for (l in names(layers))
-      write_mosaic(measured, layers[[l]], paste0("data/canopy_loss_", l, ".vrt"))
+  if (length(measured)) {
+    years <- range(epochs$year[epochs$used])
+    ranges <- list(year = years, observed = c(0, 1), canopy = c(0, 1), from = years,
+                   species = c(0, 12), crown = c(0, 4294967294), tree_top = c(50, 500))
+    sampled <- sample_stats(measured)
+    for (l in names(layers)) {
+      r <- ranges[[l]]
+      s <- sampled[l, ]
+      if (anyNA(s)) s <- c(mean(r), diff(r) / 4)
+      write_mosaic(measured, layers[[l]], paste0("data/canopy_loss_", l, ".vrt"),
+                   c(r, s))
+    }
+  }
 
   # The loss per year, from "2018:1234;2022:567" to a column per year, over
   # every year that lost anything in some tile.
