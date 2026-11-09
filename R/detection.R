@@ -53,9 +53,11 @@ observed <- function(d) max(!is.na(d))
 # share of the stand's height - would miss trees lost over a lower canopy
 # layer, where the surface falls only as far as the layer beneath.
 #
-# `lidar` says for each epoch, the first included, whether it is lidar (DOM1).
-loss_year <- function(d, years, loss_drop, open_radius, min_gap, regrowth,
-                      lidar) {
+# `p` holds the detection parameters, as detection_params (R/params.R) sets
+# them. `lidar` says for each epoch, the first included, whether it is lidar
+# (DOM1). `above_ground` is the height of the first surface above DGM1, and
+# `lake` TRUE on standing water.
+loss_year <- function(d, years, p, lidar, above_ground, lake) {
   n <- nlyr(d)
   stopifnot(is.logical(lidar), length(lidar) == n + 1)
   # Each epoch's canopy height relative to the first, accumulated from the steps
@@ -84,20 +86,44 @@ loss_year <- function(d, years, loss_drop, open_radius, min_gap, regrowth,
                 else min(ref[[k - 1]], lev[[k]])
   after <- lapply(seq_len(n), \(k)
     Reduce(\(a, b) max(a, b),
-           lapply(k:n, \(j) lev[[j + 1]] - regrowth * (years[j + 1] - years[k + 1]))))
+           lapply(k:n, \(j) lev[[j + 1]] - p$regrowth * (years[j + 1] - years[k + 1]))))
   drop <- rast(after) - rast(ref)
-  loss <- mask(drop < loss_drop, d)
+  loss <- mask(drop < p$loss_drop, d)
+
+  # Drops that are no lost trees (docs/findings.md, 2026-11-09): a reference too
+  # tall for a tree is a wind turbine or a pylon, and a surface below the ground
+  # a quarry or a hole in a bDOM. Old lidar surveys run a surface over open
+  # water from the tree tops on the shore, so on a lake a later lidar survey
+  # lying flat on DGM1 shows no loss. Rivers and canals are left out: the
+  # polygons reach under the trees on their banks.
+  height <- rast(lev) + above_ground
+  loss <- rast(lapply(seq_len(n), \(k) {
+    no_tree <- ref[[k]] + above_ground > p$max_height |
+      height[[k + 1]] < -p$below_ground
+    if (lidar[k + 1])
+      no_tree <- no_tree | (lake & abs(height[[k + 1]]) <= p$lake_flat)
+    ifel(cover(no_tree, init(no_tree, FALSE)), 0, loss[[k]])
+  }))
 
   # opening: erode then dilate, so a patch has to be wider than the kernel to
   # survive, then drop anything smaller than min_gap
-  w <- ifelse(focalMat(loss, open_radius, "circle") > 0, 1, NA)
+  w <- ifelse(focalMat(loss, p$open_radius, "circle") > 0, 1, NA)
+  min_cells <- round(p$min_gap / prod(res(loss)))
   clean <- \(r) r |>
     focal(w, "min", na.rm = TRUE) |>
     focal(w, "max", na.rm = TRUE) |>
-    sieve(round(min_gap / prod(res(loss))))
+    drop_small(min_cells)
   loss <- rast(lapply(as.list(loss), clean))
 
   min(classify(loss * years[-1], cbind(0, NA)), na.rm = TRUE)
+}
+
+# 1 on the patches of `r` with at least `min_cells` cells, 0 elsewhere. Not
+# sieve(), which would also fill the small holes in a loss and count the single
+# trees still standing in them as lost.
+drop_small <- function(r, min_cells) {
+  id <- values(patches(r, directions = 8, zeroAsNA = TRUE), mat = FALSE)
+  setValues(r, as.numeric(!is.na(id) & tabulate(id)[id] >= min_cells))
 }
 
 # The earliest year a loss can have happened: the year of the last survey that

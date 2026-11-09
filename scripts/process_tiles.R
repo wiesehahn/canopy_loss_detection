@@ -168,11 +168,10 @@ process_tile <- function(tile_id) {
     return(list(row = row, ep = cbind(tile_id = tile_id, tl$ep)))
   }
 
-  dtm <- rast(rvt_data_lgln(tl$grid, product = "dtm"))
-  canopy <- starting_canopy(tl$srf, dtm, p$canopy_height) |>
+  canopy <- starting_canopy(tl$srf, tl$dtm, p$canopy_height) |>
     crop(tile_ext(tile_id))
   canopy <- ifel(tl$built, 0, canopy)
-  trees <- lost_trees(tl, dtm, tile_id, p)
+  trees <- lost_trees(tl, tl$dtm, tile_id, p)
   if (is.null(trees)) trees <- rast(tl$year, nlyrs = 3, vals = NA)
   out <- c(tl$year, tl$seen, canopy, tl$from, trees)
   names(out) <- c("loss_year", "observed", "canopy", "loss_from",

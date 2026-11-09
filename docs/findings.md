@@ -16,6 +16,90 @@ The canopy surface from a later lidar survey serves as a reference. Lidar measur
   - Changes between the last bDOM and the reference survey cannot have been detected, so "found" is a lower bound.
   - The reference lidar flights are mostly in March (leaf-off). In broadleaf stands they can read the canopy lower, which would count some false detections as confirmed.
 
+## 2026-11-09 – What further filters would remove
+
+**Question:** the loss is cleaned by width, a 20 m² minimum and a building mask. Which other errors occur, how much of the loss are they, would a filter remove real tree loss, and what would it cost?
+
+**Setup:**
+- The 500 sample tiles of 2026-10-23, through the real `tile_loss()` with `method` = 3 and rvtr 55a3b00: 1,691 ha of loss in 136,838 patches (connected cells of one loss year). All 500 tiles measured; a rebuilt reference reproduced `loss_year()` on every tile. Two of the 5 tiles using bDOM 2025 have no loss; their surfaces are at normal heights.
+- A patch counts as hit when at least half of its cells are affected. Statewide shares are weighted by stratum, 95 % intervals by bootstrap over tiles.
+- Land use from ALKIS Landnutzung 2026, the current state only.
+- Visual check on 152 patches, per filter the 10 largest and 20 random, shown as surface before, surface after, change and current orthophoto. Rated tree loss, not tree loss, or unclear. Rated by Claude; the sheets are for checking.
+- Test only, no filter was added.
+
+**Results:**
+
+| filter | hit when | share of statewide loss (95 %) | rated: not tree / tree / unclear | what it is |
+|---|---|---|---|---|
+| H1 too tall | reference over 65 m above DGM1 | under 0.01 % (0.05 ha in the sample) | 11 / 0 / 0 | wind turbine rotors and pylons, all of them |
+| H2 below ground | surface after the loss more than 2 m below DGM1 | 0.35 % (0.07–0.76) | 23 / 3 / 4; by area 95 % not tree | quarries and sand piles; holes in a bDOM over a field |
+| W water | on ALKIS water areas | 0.36 % (0.26–0.50) | 0 / 28 / 2 | trees along ditches, streams and ponds |
+| L other land use | on `ln_abbau`, `ln_lagerung`, `ln_versorgungundentsorgung`, `ln_flugverkehr` | 0.63 % (0.37–0.98) | 6 / 17 / 2; by area 69 % not tree | quarries, but also trees around plants and depots |
+
+| rated, L by class | not tree | tree | unclear |
+|---|---|---|---|
+| `ln_abbau` (quarries; 0.43 % of sample loss) | 6 patches, 2.66 ha | 5, 0.55 ha | 0 |
+| `ln_versorgungundentsorgung` | 0 | 11, 0.66 ha | 1 |
+| `ln_lagerung` | 0 | 1 | 1 |
+
+- **Water:** the ALKIS layers tested are not the water bodies. They are mostly ditches and small ponds, where the patches are real trees. Lakes and large rivers lie in `ln_ohnenutzung`, which has no class attribute: the Steinhuder Meer is one 27.8 km² polygon there. A mask from these layers would remove real tree loss. The real error is lidar interpolating a surface over open water (2 patches rated unclear, 44 % of the rated water area, mixed with real trees).
+- **Basis-DLM, tested afterwards** (same patches, at least half their cells on the polygon; 30 patches rated per class, 10 largest and 20 random; area shares weight the random ones for the rest of the class):
+
+  | class | share of statewide loss (95 %) | rated: not tree / tree / unclear | not tree, by area |
+  |---|---|---|---|
+  | standing water (`gew01_f`, `AX_StehendesGewaesser`) | 0.47 % (0.16–0.88) | 13 / 14 / 3 | 70 % |
+  | flowing water (`AX_Fliessgewaesser`) | 0.07 % (0.03–0.12) | 11 / 14 / 5 | 34 % |
+  | quarries (`sie02_f`, `AX_TagebauGrubeSteinbruch`) | 0.35 % (0.11–0.66) | 16 / 13 / 1 | 79 % |
+  | spoil heaps (`AX_Halde`) | none | – | – |
+
+  - Only 37 of the 395 water patches are among the 474 ALKIS W patches.
+  - **Water errors have a clear signature:** an old lidar surface runs smoothly over open water from the tree tops on the shore, and a later lidar survey lies flat on the DGM1. The rated patches split almost cleanly on it: where the loss survey is lidar and the median surface after the loss is within 0.3 m of DGM1, 23 not tree, 2 tree, 5 unclear. In all other rated water patches, 1 not tree, 26 tree, 3 unclear.
+  - That rule hits 120 patches, 5.83 ha, 0.37 % of statewide loss, all but one between an old lidar survey (2013, 2015, 2017) and a later one. Two tiles hold 75 % of the area, so the share is uncertain. Without the rule, a water mask also removes the real shore trees: most water patches up to 200 m² are trees.
+  - **The rule tested per cell, before the clean-up** (detection rerun on the 120 sample tiles with loss on water, the only ones it can change; without the rule the result is identical):
+    - Removes 5.64 ha, 0.36 % of statewide loss (95 %: 0.08–0.75), in 38 tiles. 98 % of the removed cells are on water; the 0.10 ha elsewhere are fragments dropped by the clean-up. Two tiles hold 73 % of it.
+    - Rated not-tree patches: 97 % of their area removed; 24 of 24 lose at least half. Rated tree patches: 26 of 28 untouched, 3.6 % of their area removed.
+    - Mixed patches keep their land part: DS 2 loses 56 %, DS 4 62 %.
+    - The tolerance hardly matters: 0.2, 0.3 and 0.5 m remove 5.62, 5.64 and 5.66 ha.
+    - Cost: 0.17 s per tile (0.5 % of `tile_loss()`), with DGM1 shared.
+  - **Quarries:** 9 of the 16 not-tree patches are also caught by H2, and only 1 of the 13 tree patches. The tree patches are forest cleared at quarry edges, which is real loss, and no simple rule separates them. The quarry errors H2 misses are about 4 ha, 0.2 % of the loss.
+  - **Cost:** the classes fit a 26 MB GeoPackage; reading and rasterizing take about 0.015 s per tile. The Basis-DLM is one 546 MB download.
+- **Below ground:** reference under 5 m above DGM1 applies to 75 of its 85 patches. One field tile (324415853, bDOM 2023) holds 21 of them with 0.8 ha, a surface that falls up to 18 m below ground. Such holes are a bDOM error of a last survey, which later surveys could not contradict.
+- **Height profile:** only 0.4 ha of loss has a reference above 40 m, and 0.1 ha above 45 m. A lower limit could remove little more; patches between 40 and 65 m were not rated.
+- **Lidar check:** 99.1 % of 625 ha checkable is confirmed. W (99.6 %) and L (98.5 %) are like the rest, and H1 and H2 have almost nothing checkable. It proves a height drop, not a tree: quarries confirm too.
+- **Last survey (flag, no filter):** 71 % of the loss is dated to a tile's last survey, as most loss is recent. Lidar confirms 99.3 % where it can check.
+- **Other errors:** in the 30 largest patches with contradicted cells all are real clearings, as that selection favours large patches, so it could not find rare errors. Of the 26 largest patches in tiles with little forest, 25 are trees and one is a demolished building that has left the 2026 footprints.
+
+**Cost**, on top of `tile_loss()` at 29.9 s per tile (mean; median 26.9), 6 workers on the test machine:
+
+| | seconds per tile | statewide on 2.3 days |
+|---|---|---|
+| height check (H1 and H2) | 0.21 | +0.4 h |
+| reading DGM1, if not shared with the read for canopy and trees | 3.14 | +5.8 h |
+| water mask | 0.06 | +0.1 h |
+| land-use mask | 0.08 | +0.1 h |
+
+- **Code for H1 and H2:** `tile_loss()` needs DGM1, and `loss_year()` must expose the reference; two settings; `lidar-biodiversity-plots` would have to follow.
+- **Code for a quarry mask:** a script to cut `ln_abbau` out of ALKIS, about 3,500 polygons, and a second call in the form of `built_up()`.
+- Reading ALKIS needs the 3.2 GB file only once, for that cut.
+
+**Decision:** implemented as `method` = 4, per cell and before the clean-up:
+- A drop does not count where the reference is more than 65 m above DGM1, where the surface after it is more than 2 m below DGM1, or on Basis-DLM standing water (`data/lakes.gpkg`) where the survey showing it is lidar and its surface lies within 0.3 m of DGM1.
+- `sieve()` replaced by `drop_small()`, which removes small losses and leaves holes alone.
+- **Not implemented:** rivers and canals (the map comparison left doubt in towns, 0.07 % of the loss), a quarry mask (it would also remove forest cleared at quarry edges), the ALKIS masks.
+
+**Check of the implementation:** the 500 sample tiles through the new `tile_loss()`, against the results before; each change also alone. No errors, and no loss added anywhere.
+
+| change | sample | share of statewide loss (95 %) |
+|---|---|---|
+| holes no longer filled | 14.10 ha | 0.76 % (0.65–0.86) |
+| below ground | 5.25 ha | 0.38 % (0.10–0.79) |
+| lakes | 5.38 ha | 0.33 % (0.06–0.73) |
+| over 65 m | 0.06 ha | 0.005 % (0.001–0.010) |
+| **all** | 24.78 ha, from 1,690.9 to 1,666.1 ha | **1.47 %** (1.06–2.00) |
+
+- **Rated patches:** all 11 H1 patches are removed entirely. Standing water behaves as tested (12 of 14 tree patches untouched, all 13 not-tree patches lose at least half). The patches in `contra` and `lowforest` keep everything but holes; flowing water changes almost nothing.
+- **Cost:** `loss_year()` takes 2.2 s instead of 1.1 s per tile, the lakes 0.05 s, against about 35 s for `tile_loss()` (8 tiles, one at a time): about +3 %, or 2 h on the statewide run. DGM1 is read once, where it was read later anyway.
+
 ## 2026-11-05 – Lidar resets the loss reference
 
 **Question:** a loss was measured against the lowest height a cell ever had. Canopy that grew up and was then cut was missed: grown from 2 m to 14 m and cut back to 2 m is no drop below 2 m. How should the reference follow growth without letting bDOM errors in?
@@ -480,7 +564,7 @@ Same 25 tiles, with the original method (levelled, cubic bDOM).
 
 ## Open
 
-- **Statewide run:** continue it on the Threadripper with 16 workers, about 2.3 days (see 2026-10-23). It stopped on 2026-10-23 with 2,494 tiles done. With `method` = 3 (lidar reset and rvtr 55a3b00, 2026-11-05) all of them are redone, so it starts over: about 2.3 days for all 41,473. Install rvtr 55a3b00 on that machine first.
+- **Statewide run:** continue it on the Threadripper with 16 workers, about 2.3 days (see 2026-10-23). It stopped on 2026-10-23 with 2,494 tiles done. With `method` = 4 (lidar reset, rvtr 55a3b00, loss filters; 2026-11-05 and 2026-11-09) all of them are redone, so it starts over: about 2.4 days for all 41,473. Install rvtr 55a3b00 on that machine first.
 - **Regrowth:** wait for the next lidar cycle; meanwhile test bDOM for young regrowth (see 2026-10-22).
 - **Plots repo:** re-run its outputs (`data/*/canopy_loss/`), which still hold levelled, cubic results.
 - **Lost trees:**
@@ -488,4 +572,4 @@ Same 25 tiles, with the original method (levelled, cubic bDOM).
   - a window for trees outside the forest;
   - a check against more point-cloud tiles.
 - **Grew up, then cut:** solved where lidar saw the growth (2026-11-05). Still missed where only bDOM saw it.
-- **Plots repo:** its outputs also need the lidar reset (both calls pass `lidar` now).
+- **Plots repo:** its outputs also need the lidar reset. Its two `loss_year()` calls no longer run since 2026-11-09: the function now takes `p`, `above_ground` and `lake`.

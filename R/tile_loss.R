@@ -31,6 +31,7 @@
 #   grid, srf   the buffered grid and the surfaces on it, for anything else
 #          the caller wants read on the same cells (starting canopy, shading).
 #          The grid is a temporary file, the caller's to unlink.
+#   dtm    DGM1 on that grid, likewise.
 tile_loss <- function(tile_id, p) {
   bare <- tile_grid(tile_id, 0, p$res_m)
   on.exit(unlink(bare))
@@ -41,7 +42,7 @@ tile_loss <- function(tile_id, p) {
     ep$reason[ep$used] <- reason
     ep$used <- FALSE
     list(ep = ep, reason = reason, year = NULL, from = NULL, seen = NULL,
-         built = NULL, grid = NULL, srf = NULL)
+         built = NULL, grid = NULL, srf = NULL, dtm = NULL)
   }
   if (nrow(used) < 2) return(unusable("only epoch, nothing to compare"))
 
@@ -57,8 +58,12 @@ tile_loss <- function(tile_id, p) {
   if (unlist(global(seen, "max", na.rm = TRUE)) == 0)
     return(unusable("no epoch overlaps another"))
 
-  year <- loss_year(d, used$year, p$loss_drop, p$open_radius, p$min_gap,
-                    p$regrowth, lidar = used$product == "dsm") |>
+  dtm <- rast(rvt_data_lgln(grid, product = "dtm")) |>
+    resample(srf[[1]], method = "bilinear") |>
+    toMemory()
+  year <- loss_year(d, used$year, p, lidar = used$product == "dsm",
+                    above_ground = Reduce(cover, as.list(srf)) - dtm,
+                    lake = lakes_on(dtm, p$lakes)) |>
     crop(tile)
   from <- loss_from(crop(srf, tile), used$year, year)
 
@@ -69,5 +74,5 @@ tile_loss <- function(tile_id, p) {
   from  <- mask(from, built, maskvalues = TRUE)
   seen  <- ifel(built, 0, seen)
   list(ep = ep, reason = "", year = year, from = from, seen = seen, built = built,
-       grid = grid, srf = srf)
+       grid = grid, srf = srf, dtm = dtm)
 }

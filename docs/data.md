@@ -164,6 +164,7 @@ Written by step 1, before any tile is processed.
 | path | contents |
 |---|---|
 | `buildings.gpkg` | ALKIS building footprints for Lower Saxony (layer `buildings`), used to mask buildings |
+| `lakes.gpkg` | Standing water from the Basis-DLM (layer `lakes`), where a later lidar survey lying flat does not count as loss |
 | `treespecies_2018.tif` | Dominant tree species map of Germany 2018 (10 m, EPSG:3035), used for the lost trees |
 | `lgln_coverage_source.csv` | The ETags (content checksums) of LGLN's tile indexes the coverage was built from. When LGLN serves other ones, step 1 rebuilds the coverage. |
 | `params/<params>.txt` | Each set of settings tiles were made with, under the fingerprint in the `params` column |

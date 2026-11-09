@@ -8,9 +8,10 @@
 # new number.
 
 detection_params <- list(
-  method        = 3,      # raise after a change in R/ or rvtr that alters the results
+  method        = 4,      # raise after a change in R/ or rvtr that alters the results
                           # 2: lidar resets the loss reference (2026-11-05)
                           # 3: rvtr 55a3b00, bDOM 2025 no longer 40 m high (2026-11-05)
+                          # 4: drops that are no lost trees left out, holes no longer filled (2026-11-09)
   res_m         = 1,      # m, DOM1's native grid; bDOM is resampled onto it
   veg_months    = 5:10,   # vegetation period, bDOM only
   min_cover     = 0.05,   # smallest share of the tile an epoch must reach
@@ -18,6 +19,10 @@ detection_params <- list(
   regrowth      = 0.5,    # m per year a gap may regrow and still count as lost
   open_radius   = 1.5,    # m, morphological opening (3 x 3 cells), drops speckle
   min_gap       = 20,     # m², smallest loss patch kept
+  max_height    = 65,     # m above DGM1, a taller reference is no tree
+  below_ground  = 2,      # m below DGM1, a surface lower than this is no lost tree
+  lake_flat     = 0.3,    # m around DGM1, a lidar surface on a lake this close lies flat
+  lakes         = "data/lakes.gpkg",      # Basis-DLM standing water, scripts/get_lakes.R
   buffer        = 50,     # m, read past the tile edge, see R/tile_loss.R
   canopy_height = 5,      # m, canopy vs. open when the record starts
   buildings     = "data/buildings.gpkg",  # ALKIS footprints, scripts/get_buildings.R

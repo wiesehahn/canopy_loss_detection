@@ -5,6 +5,7 @@
 #   1. which LGLN surveys exist per tile  scripts/get_lgln_coverage.R
 #      and maps of it                     scripts/map_coverage.R
 #      the building footprints            scripts/get_buildings.R
+#      the lakes                          scripts/get_lakes.R
 #      and the tree species map           scripts/get_species.R
 #   2. canopy loss per tile               scripts/process_tiles.R
 #   3. mosaic and per-tile table          scripts/build_outputs.R
@@ -14,8 +15,8 @@
 #
 #   1. The coverage and its maps are rebuilt when LGLN's tile indexes have
 #      changed since the last build (compared by ETag, a header request only).
-#      The buildings and the species map are fetched when they are missing;
-#      delete either to pick up a newer release.
+#      The buildings, lakes and species map are fetched when they are missing;
+#      delete any of them to pick up a newer release.
 #   2. Tiles are processed that are not done yet, that have new LGLN flights
 #      since they were done, or that were done with other settings
 #      (R/params.R). The rest is skipped. A stopped run picks up where it was.
@@ -39,6 +40,8 @@ if (lgln_coverage_outdated("data/lgln_coverage.gpkg", "data/lgln_coverage_source
 for (input in list(
        list(file = detection_params$buildings, script = "scripts/get_buildings.R",
             what = "Building footprints"),
+       list(file = detection_params$lakes, script = "scripts/get_lakes.R",
+            what = "Lakes"),
        list(file = detection_params$species, script = "scripts/get_species.R",
             what = "Tree species map"))) {
   if (file.exists(input$file)) {

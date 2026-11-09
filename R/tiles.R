@@ -27,6 +27,16 @@ built_up <- function(template, file, grow = 1) {
   rasterize(buffer(v, grow), template, background = 0) == 1
 }
 
+# TRUE where standing water covers a cell of `template`, from the GeoPackage
+# scripts/get_lakes.R writes.
+lakes_on <- function(template, file) {
+  if (!file.exists(file))
+    stop("No lakes at ", file, ". Run scripts/get_lakes.R first.", call. = FALSE)
+  v <- vect(file, layer = "lakes", extent = ext(template))
+  if (!nrow(v)) return(init(template, FALSE))
+  rasterize(v, template, background = 0) == 1
+}
+
 # A grid over the tile for rvt_data_lgln(), written out as write_grid() does
 # for a plot. The tile's corners already sit on whole metres, so every product
 # lands on its own cells. `buffer` reaches into the neighbouring tiles, for

@@ -22,9 +22,10 @@ Each one records the height of whatever is on top, tree crowns in a forest. Comp
    - it stays down in all later surveys, allowing for some regrowth.
 
    "The height it had before" is the last lidar height, or lower if a photo-based survey since has shown it lower. Photo-based surveys never raise it: they tend to read the canopy a little too high. A single survey that misreads the canopy is contradicted by the next one and not counted.
-4. **Clean up.** Specks narrower than 3 m and patches smaller than 20 m² are removed. Each loss is dated to the first survey that shows it.
-5. **Leave out buildings.** Building footprints from the official cadastre (ALKIS) are removed, so every change counted is vegetation. Trees outside the forest, in gardens, along roads and in hedges, are kept.
-6. **Find the lost trees.** Within the lost area, single trees are found in the last lidar survey before the loss: tree tops as local height maxima, and the lost area split into their crowns. How far apart tops must be depends on height and species, following yield-table stand densities. Each tree gets the species of the [German tree species map 2018](https://doi.org/10.25625/XOZAGY) that most of its crown lies on.
+4. **Leave out what cannot be a lost tree.** A height drop does not count where the height before was more than 65 m above the ground (wind turbines, pylons), where the surface afterwards lies more than 2 m below the ground (quarries, holes in a photo-based survey), or on a lake where a later lidar survey lies flat on the water: older lidar surveys draw a surface across open water.
+5. **Clean up.** Specks narrower than 3 m and patches smaller than 20 m² are removed. Small holes inside a loss are kept, since single trees may still stand there. Each loss is dated to the first survey that shows it.
+6. **Leave out buildings.** Building footprints from the official cadastre (ALKIS) are removed, so every change counted is vegetation. Trees outside the forest, in gardens, along roads and in hedges, are kept.
+7. **Find the lost trees.** Within the lost area, single trees are found in the last lidar survey before the loss: tree tops as local height maxima, and the lost area split into their crowns. How far apart tops must be depends on height and species, following yield-table stand densities. Each tree gets the species of the [German tree species map 2018](https://doi.org/10.25625/XOZAGY) that most of its crown lies on.
 
 The thresholds were chosen and checked against later lidar surveys that the detection never saw. [`docs/findings.md`](docs/findings.md) logs those tests and the reasons behind each setting.
 
@@ -91,7 +92,7 @@ source("run.R")
 
 This runs three steps:
 
-1. List which surveys exist for each tile, and download the building footprints and the tree species map (once, about 700 and 600 MB).
+1. List which surveys exist for each tile, and download the building footprints, the lakes (from the Basis-DLM) and the tree species map (once, about 700, 550 and 600 MB).
 2. Detect loss in every tile, in parallel. This step takes about 2–3 days for the whole state with a fast internet connection, since every survey is streamed from LGLN. It can be stopped and restarted at any time.
 3. Build the maps and the tile table from the tiles finished so far.
 
