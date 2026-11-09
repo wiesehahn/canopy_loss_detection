@@ -16,6 +16,27 @@ The canopy surface from a later lidar survey serves as a reference. Lidar measur
   - Changes between the last bDOM and the reference survey cannot have been detected, so "found" is a lower bound.
   - The reference lidar flights are mostly in March (leaf-off). In broadleaf stands they can read the canopy lower, which would count some false detections as confirmed.
 
+## 2026-11-09 – Read speed and behaviour on interruptions
+
+**Question:** before the statewide run: which parts cost the most, can they be sped up, and does the run survive interruptions?
+
+**Setup:** 20 sample tiles one at a time, each step timed. Read settings on whole `tile_loss()` runs, 24 tiles, 6 workers, 2 rounds. Interruptions on 12 tiles with the real `process_tiles.R` and `build_outputs.R` in a scratch copy, compared with an uninterrupted run.
+
+**Results:**
+- **Time per tile (35 s):** reading bDOM 44 % (12 s per survey), finding and opening remote files 17 %, DGM1 9 %, lost trees 8 %, `loss_year()` 4 %. Local computation is not worth optimising.
+- **Read settings** (identical results, no failures): no folder listing and 2 decode threads, −20 % at 6 workers. 4 threads do no better. A 15 m buffer saves 5 % of a read and was not pursued.
+- **Interruptions:**
+
+  | test | result |
+  |---|---|
+  | normal run, then run again | correct, no temp files left; nothing redone |
+  | session killed, resumed | identical to an uninterrupted run |
+  | worker killed | restarts by itself, identical |
+  | results file locked 45 s | correct, but one tile's rows twice in `epochs.csv` |
+  | half a result row and half a raster | not handled before: tile counted as done, mosaic on a broken raster |
+
+**Decision:** read settings and a 300 s request limit set in `process_tiles.R`. Rasters are written under another name and renamed when complete; half a last line is cut from the tables at startup; a table that cannot be replaced stops the run; duplicate epoch rows are dropped in the outputs. The settings still need a short pilot on the statewide machine, at 8 and 16 workers: there LGLN's servers set the limit.
+
 ## 2026-11-09 – What further filters would remove
 
 **Question:** the loss is cleaned by width, a 20 m² minimum and a building mask. Which other errors occur, how much of the loss are they, would a filter remove real tree loss, and what would it cost?
@@ -564,7 +585,7 @@ Same 25 tiles, with the original method (levelled, cubic bDOM).
 
 ## Open
 
-- **Statewide run:** continue it on the Threadripper with 16 workers, about 2.3 days (see 2026-10-23). It stopped on 2026-10-23 with 2,494 tiles done. With `method` = 4 (lidar reset, rvtr 55a3b00, loss filters; 2026-11-05 and 2026-11-09) all of them are redone, so it starts over: about 2.4 days for all 41,473. Install rvtr 55a3b00 on that machine first.
+- **Statewide run:** continue it on the Threadripper with 16 workers, about 2.3 days (see 2026-10-23). It stopped on 2026-10-23 with 2,494 tiles done. With `method` = 4 (lidar reset, rvtr 55a3b00, loss filters; 2026-11-05 and 2026-11-09) all of them are redone, so it starts over: about 2.4 days for all 41,473. Install rvtr 55a3b00 on that machine first, and pilot 8 against 16 workers (the read settings of 2026-11-09 double the connections per worker). Steps in `CLAUDE.md`.
 - **Regrowth:** wait for the next lidar cycle; meanwhile test bDOM for young regrowth (see 2026-10-22).
 - **Plots repo:** re-run its outputs (`data/*/canopy_loss/`), which still hold levelled, cubic results.
 - **Lost trees:**

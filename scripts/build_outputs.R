@@ -151,6 +151,8 @@ if (!file.exists(result_file)) {
                                                   epoch_dates = "character",
                                                   params = "character"))
   epochs  <- read.csv(epoch_file, colClasses = c(tile_id = "character"))
+  # a tile redone in the same session after its results could not be written
+  epochs  <- epochs[!duplicated(epochs[c("tile_id", "product", "year")], fromLast = TRUE), ]
 
   # The mosaics, over the measured tiles only: a raster left behind by a tile
   # that is being redone, or that failed, stays out.

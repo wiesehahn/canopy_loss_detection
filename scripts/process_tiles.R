@@ -83,9 +83,17 @@ result_file   <- "data/tile_results.csv"
 epoch_file    <- "data/epochs.csv"
 run_log       <- "data/runs.csv"
 dir.create(tile_dir, recursive = TRUE, showWarnings = FALSE)
-for (f in c(p$buildings, p$species, coverage_file))
+for (f in c(p$buildings, p$lakes, p$species, coverage_file))
   if (!file.exists(f))
     cli_abort("{.file {f}} is missing. Run {.file run.R}, which fetches it first.")
+
+# How GDAL reads LGLN's files, for this session and the workers it starts: no
+# listing of the remote folder at every open, two threads to read and decode
+# (about 20 % faster at 6 workers, the same values; docs/findings.md,
+# 2026-11-09), and a limit on how long one request may hang.
+Sys.setenv(GDAL_DISABLE_READDIR_ON_OPEN = "EMPTY_DIR", GDAL_NUM_THREADS = "2",
+           GDAL_HTTP_TIMEOUT = "300", GDAL_HTTP_MAX_RETRY = "3",
+           GDAL_HTTP_RETRY_DELAY = "10")
 
 # The settings, kept under their fingerprint, so any tile's row can be traced
 # back to the values it was made with.
@@ -96,6 +104,28 @@ if (!file.exists(params_file)) writeLines(deparse(p), params_file)
 read_table <- function(file, text = "tile_id")
   if (file.exists(file))
     read.csv(file, colClasses = setNames(rep("character", length(text)), text))
+
+replace_file <- function(tmp, file) {
+  if (!suppressWarnings(file.rename(tmp, file)))
+    cli_abort(c("{.file {file}} cannot be replaced (open in another program?).",
+                i = "Close it and run again."))
+}
+
+# A session killed while appending leaves half a line, which would read as a
+# finished tile and take the next row onto it. Cut back to the last whole line:
+# the tile then counts as not done and is redone.
+repair_table <- function(file) {
+  if (!file.exists(file)) return(invisible())
+  b <- readBin(file, "raw", file.size(file))
+  ends <- which(b == as.raw(10))
+  if (!length(ends) || max(ends) == length(b)) return(invisible())
+  cli_alert_warning("{.file {file}} ended in half a line: removed it")
+  tmp <- paste0(file, ".part")
+  writeBin(b[seq_len(max(ends))], tmp)
+  replace_file(tmp, file)
+}
+for (f in c(result_file, epoch_file, run_log)) repair_table(f)
+unlink(list.files(tile_dir, "[.]part$", full.names = TRUE))  # from a killed run
 
 # The selection: comparable tiles inside the box or list.
 cov <- st_read(coverage_file, quiet = TRUE,
@@ -142,7 +172,7 @@ drop_rows <- function(file, ids) {
   if (!any(x$tile_id %in% ids)) return(invisible())
   tmp <- paste0(file, ".part")
   write.csv(x[!x$tile_id %in% ids, ], tmp, row.names = FALSE)
-  invisible(file.rename(tmp, file))
+  replace_file(tmp, file)
 }
 drop_rows(result_file, todo)
 drop_rows(epoch_file, todo)
@@ -179,12 +209,16 @@ process_tile <- function(tile_id) {
   # Copied through gdal_translate -stats, so complete band statistics sit
   # inside the GeoTIFF. terra writes only min and max, and a viewer such as
   # QGIS would compute the rest and leave them beside it as .aux.xml. The
-  # temporary file goes with the session's temp folder (run_one()).
+  # temporary file goes with the session's temp folder (run_one()). Written
+  # under another name and renamed when complete, so a raster under the tile's
+  # name is always a whole one.
   tmp <- tempfile(fileext = ".tif")
   writeRaster(out, tmp, datatype = "INT4U")
-  sf::gdal_utils("translate", tmp, file,
-                 options = c("-stats", "-co", "COMPRESS=DEFLATE", "-co", "PREDICTOR=2"),
+  part <- paste0(file, ".part")
+  sf::gdal_utils("translate", tmp, part,
+                 options = c("-of", "GTiff", "-stats", "-co", "COMPRESS=DEFLATE", "-co", "PREDICTOR=2"),
                  config_options = c(GTIFF_SRS_SOURCE = "EPSG"))
+  if (!file.rename(part, file)) stop("cannot replace ", file, call. = FALSE)
 
   # The tile's row, measured here while the raster is in hand, so the tile
   # table never has to read the rasters again.
