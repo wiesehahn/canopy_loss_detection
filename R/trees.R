@@ -4,6 +4,24 @@
 # lies on. docs/findings.md says how the window was chosen. terra and lidR are
 # the caller's to have installed; lidR is called by namespace.
 
+# The species codes of the `species` band: name and map colour. The colours
+# start from the forestry colours of the main species and were adjusted so all
+# classes stay apart under simulated colour blindness (docs/data.md).
+species_classes <- data.frame(
+  code   = 0:12,
+  name   = c("none", "alder", "ash", "beech", "birch", "Douglas fir", "fir", "larch",
+             "maple", "oak", "other broadleaf", "pine", "spruce"),
+  colour = c("#D9D9D9", "#193800", "#8EA72D", "#886201", "#0B6C4A", "#6B3261", "#76DDFF",
+             "#BF6D72", "#DFF8D4", "#FFE56B", "#B8B3A3", "#7498A5", "#5B62CA"))
+
+# A species band with its names and colours attached, for maps in R. The
+# GeoTIFF tiles cannot store them themselves; the species mosaic has them.
+label_species <- function(r) {
+  coltab(r) <- data.frame(value = species_classes$code, col = species_classes$colour)
+  levels(r) <- data.frame(value = species_classes$code, species = species_classes$name)
+  r
+}
+
 # The tree species map on the grid of `template`, reprojected per tile.
 species_on <- function(template, file) {
   sp <- rast(file)
@@ -120,7 +138,7 @@ tree_tile <- function(id) {
 
 # All lost trees of the given tile rasters as one table: one row per tree,
 # from its top pixel, with its ID, position (cell centre), height (m), species
-# and loss period. For analysis, or to write points for an area. Read with
+# (a factor of names, in code order) and loss period. For analysis, or to write points for an area. Read with
 # gdalraster: terra reads 32-bit unsigned bands as R integers, which stop at
 # 2.1e9, so it returns NA for the tree IDs.
 trees_from_tiles <- function(files) {
@@ -137,7 +155,9 @@ trees_from_tiles <- function(files) {
     col <- (top - 1) %% nx; row <- (top - 1) %/% nx
     data.frame(id = v$crown[top], x = gt[1] + (col + 0.5) * gt[2],
                y = gt[4] + (row + 0.5) * gt[6], height = v$tree_top[top] / 10,
-               species = v$species[top], loss_from = v$loss_from[top],
+               species = factor(v$species[top], levels = species_classes$code,
+                                labels = species_classes$name),
+               loss_from = v$loss_from[top],
                loss_year = v$loss_year[top])
   }))
 }

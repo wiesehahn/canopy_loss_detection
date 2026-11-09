@@ -5,7 +5,9 @@
 #                                single-band VRT per layer of data/tiles/*.tif
 #                                - year, observed, canopy, from, species,
 #                                crown, tree_top - so the year opens in QGIS as
-#                                the one band it is, not as an RGB image.
+#                                the one band it is, not as an RGB image. The
+#                                species mosaic carries the species' names and
+#                                colours, and a raster attribute table.
 #   data/canopy_loss_tiles.gpkg  two layers:
 #     tiles        one polygon per tile in lgln_coverage.gpkg, with its
 #                  coverage columns, and for every measured tile the figures
@@ -21,6 +23,8 @@
 # tables and the coverage they come from.
 library(sf)
 library(cli)
+
+source("R/trees.R")  # species_classes
 
 coverage_file <- "data/lgln_coverage.gpkg"
 tile_dir      <- "data/tiles"
@@ -74,7 +78,11 @@ sample_stats <- function(ids, n = 50) {
 # an .aux.xml beside every tile. Minimum and maximum are declared ranges, mean
 # and sd sampled estimates: exact ones would mean opening every tile, and they
 # only serve to display the mosaic.
-write_mosaic <- function(ids, band, file, stats) {
+#
+# `classes` (code, name, colour; codes 0, 1, 2, ...) makes it a classified
+# layer: Byte, so it is a plain paletted raster to any viewer, with a colour
+# table, class names and a raster attribute table.
+write_mosaic <- function(ids, band, file, stats, classes = NULL) {
   x0 <- as.numeric(substr(ids, 3, 5)) * 1000         # left edge
   y1 <- as.numeric(substr(ids, 6, 9)) * 1000 + 1000  # top edge
   xmin <- min(x0)
@@ -89,14 +97,39 @@ write_mosaic <- function(ids, band, file, stats) {
     '      <DstRect xOff="%.0f" yOff="%.0f" xSize="1000" ySize="1000" />\n',
     '      <NODATA>4294967295</NODATA>\n',
     '    </ComplexSource>'), ids, band, x0 - xmin, ymax - y1)
+  band_type <- if (is.null(classes)) "UInt32" else "Byte"
+  nodata    <- if (is.null(classes)) "4294967295" else "255"
+  interp    <- if (is.null(classes)) "Gray" else "Palette"
+  class_xml <- NULL
+  if (!is.null(classes)) {
+    rgb <- t(col2rgb(classes$colour))
+    field <- \(i, name, type, usage) sprintf(paste0(
+      '      <FieldDefn index="%d"><Name>%s</Name><Type>%d</Type>',
+      '<Usage>%d</Usage></FieldDefn>'), i, name, type, usage)
+    class_xml <- c(
+      '    <ColorTable>',
+      sprintf('      <Entry c1="%d" c2="%d" c3="%d" c4="255"/>', rgb[, 1], rgb[, 2], rgb[, 3]),
+      '    </ColorTable>',
+      '    <CategoryNames>',
+      sprintf('      <Category>%s</Category>', classes$name),
+      '    </CategoryNames>',
+      '    <GDALRasterAttributeTable tableType="thematic">',
+      field(0, "Value", 0, 5), field(1, "Name", 2, 2),  # types 0 integer, 2 text
+      field(2, "Red", 0, 6), field(3, "Green", 0, 7), field(4, "Blue", 0, 8),
+      sprintf('      <Row index="%d"><F>%d</F><F>%s</F><F>%d</F><F>%d</F><F>%d</F></Row>',
+              seq_along(classes$code) - 1L, classes$code, classes$name,
+              rgb[, 1], rgb[, 2], rgb[, 3]),
+      '    </GDALRasterAttributeTable>')
+  }
   writeLines(c(
     sprintf('<VRTDataset rasterXSize="%.0f" rasterYSize="%.0f">',
             max(x0) + 1000 - xmin, ymax - min(y1) + 1000),
     sprintf('  <SRS dataAxisToSRSAxisMapping="1,2">%s</SRS>', st_crs(25832)$wkt),
     sprintf('  <GeoTransform>%.0f, 1, 0, %.0f, 0, -1</GeoTransform>', xmin, ymax),
-    '  <VRTRasterBand dataType="UInt32" band="1">',
-    '    <NoDataValue>4294967295</NoDataValue>',
-    '    <ColorInterp>Gray</ColorInterp>',
+    sprintf('  <VRTRasterBand dataType="%s" band="1">', band_type),
+    sprintf('    <NoDataValue>%s</NoDataValue>', nodata),
+    sprintf('    <ColorInterp>%s</ColorInterp>', interp),
+    class_xml,
     sprintf(paste0('    <Metadata><MDI key="STATISTICS_MINIMUM">%.10g</MDI>',
                    '<MDI key="STATISTICS_MAXIMUM">%.10g</MDI>',
                    '<MDI key="STATISTICS_MEAN">%.10g</MDI>',
@@ -133,7 +166,7 @@ if (!file.exists(result_file)) {
       s <- sampled[l, ]
       if (anyNA(s)) s <- c(mean(r), diff(r) / 4)
       write_mosaic(measured, layers[[l]], paste0("data/canopy_loss_", l, ".vrt"),
-                   c(r, s))
+                   c(r, s), if (l == "species") species_classes)
     }
   }
 

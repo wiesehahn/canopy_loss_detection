@@ -28,7 +28,25 @@ One GeoTIFF per measured tile: 1000 × 1000 cells of 1 m, unsigned 32-bit intege
 | 6 | `crown` | tree ID; empty | On the crowns of lost trees, the tree's ID: one crown, one ID, unique across all tiles. |
 | 7 | `tree_top` | height in dm; empty | On the top pixel of each lost tree only, its height above ground in decimetres (e.g. `257` = 25.7 m), from the lidar survey before the loss. |
 
-**Species codes** (band 5), from the dominant tree species map of Germany 2018: `0` none (outside the map's forest, or disturbed before 2018), `1` alder, `2` ash, `3` beech, `4` birch, `5` Douglas fir, `6` fir, `7` larch, `8` maple, `9` oak, `10` other broadleaf, `11` pine, `12` spruce.
+**Species codes** (band 5), from the dominant tree species map of Germany 2018:
+
+| code | name | colour |
+|---|---|---|
+| `0` | none (outside the map's forest, or disturbed before 2018) | `#D9D9D9` |
+| `1` | alder | `#193800` |
+| `2` | ash | `#8EA72D` |
+| `3` | beech | `#886201` |
+| `4` | birch | `#0B6C4A` |
+| `5` | Douglas fir | `#6B3261` |
+| `6` | fir | `#76DDFF` |
+| `7` | larch | `#BF6D72` |
+| `8` | maple | `#DFF8D4` |
+| `9` | oak | `#FFE56B` |
+| `10` | other broadleaf | `#B8B3A3` |
+| `11` | pine | `#7498A5` |
+| `12` | spruce | `#5B62CA` |
+
+The colours start from the forestry colours of the main species (oak `#fecc00`, beech `#bf7013`, spruce `#4066aa`, Douglas fir `#a5027c`, pine `#94a6b0`, larch `#e20030`, and the two broadleaf groups), shifted so that the species stay apart under simulated colour blindness and none is much more colourful than the others. The smallest difference between two species (CIEDE2000) is 19 with normal vision and 12–14 under full red-green or blue-yellow colour blindness. `species_classes` in `R/trees.R` holds this table.
 
 **Reading a cell:**
 
@@ -48,6 +66,8 @@ One GeoTIFF per measured tile: 1000 × 1000 cells of 1 m, unsigned 32-bit intege
 
 `canopy_loss_year.vrt`, `canopy_loss_from.vrt`, `canopy_loss_observed.vrt`, `canopy_loss_canopy.vrt`, `canopy_loss_species.vrt`, `canopy_loss_crown.vrt` and `canopy_loss_tree_top.vrt` join one band of all tile rasters into a single statewide layer. The values are as above. They are small text files that point to the tiles, so they need `tiles/` next to them. The statistics inside them are for display only: a fixed value range and a mean and standard deviation estimated from 50 tiles. For exact values use the tiles or the tile table.
 
+`canopy_loss_species.vrt` is the layer to use for species in a GIS: it opens with the species' names and colours, and has a raster attribute table (`Value`, `Name`, `Red`, `Green`, `Blue`). Its cells are 8-bit, with `255` as NoData. The tile rasters cannot store these, so their band 5 shows bare codes. In R, `label_species()` in `R/trees.R` adds names and colours to a tile's species band.
+
 ## Lost trees (bands 5–7)
 
 The lost trees are stored in the tile rasters, not as a separate file. A tree is one `tree_top` pixel: its position, its height, and the same pixel's `crown` (ID), `species`, `loss_from` and `loss_year`. Its crown is every pixel with the same `crown` value. Trees are found only on loss pixels, in the last lidar survey before the loss; losses with no lidar survey before them get no trees.
@@ -56,7 +76,7 @@ The lost trees are stored in the tile rasters, not as a separate file. A tree is
 - IDs are unique across all tiles and depend only on the grid, not on processing order;
 - the tile can be read back from any ID: tile number = `ID %/% 32768` (`tree_tile()` in `R/trees.R`).
 
-**As a table:** `trees_from_tiles(files)` in `R/trees.R` returns one row per tree (`id`, `x`, `y`, `height` in m, `species`, `loss_from`, `loss_year`) for any set of tiles. From there it can be written as points, for example with `sf::st_as_sf(..., coords = c("x", "y"), crs = 25832)`.
+**As a table:** `trees_from_tiles(files)` in `R/trees.R` returns one row per tree (`id`, `x`, `y`, `height` in m, `species` as a factor of names in code order, `loss_from`, `loss_year`) for any set of tiles. From there it can be written as points, for example with `sf::st_as_sf(..., coords = c("x", "y"), crs = 25832)`.
 
 **Reading in R:** terra reads unsigned 32-bit bands as R integers, which stop at 2,147,483,647, so it shows the tree IDs as empty. The other bands are fine in terra. Read the IDs with gdalraster (as `trees_from_tiles()` does), stars or GDAL directly. QGIS and Python read them correctly.
 
