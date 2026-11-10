@@ -16,6 +16,34 @@ The canopy surface from a later lidar survey serves as a reference. Lidar measur
   - Changes between the last bDOM and the reference survey cannot have been detected, so "found" is a lower bound.
   - The reference lidar flights are mostly in March (leaf-off). In broadleaf stands they can read the canopy lower, which would count some false detections as confirmed.
 
+## 2026-11-10 – The no-tree rules for the starting canopy
+
+**Question:** the rules of 2026-11-09 (reference over 65 m above DGM1; lidar flat on a lake) remove such cells from the loss, but the starting canopy is still the first surface 5 m or more above DGM1. Does it still count turbines and lakes under old lidar surfaces as canopy, how much, and does applying the same rules there change anything else?
+
+**Setup:**
+- `tile_loss()` returns `no_canopy`, and `process_tiles.R` sets `canopy` to 0 there:
+  - the first surface stands more than `max_height` above DGM1; or
+  - the cell is a lake (`data/lakes.gpkg`) and a lidar survey lies within `lake_flat` of DGM1 there.
+- Heights are read from the surfaces directly. Where a lidar survey has a value, this is the height `loss_year()` tests.
+- 13 tiles, through the real `process_tiles.R`, method 4:
+  - the 6 water tiles of the 2026-11-09 comparison;
+  - 5 tiles with H1 patches;
+  - 2 controls: pilot tile 326005741, no lake; 324405817, which has a lake but no lidar over it at canopy height.
+
+**Results:**
+
+| tiles | starting canopy before | removed: over 65 m | removed: lake | share removed |
+|---|---|---|---|---|
+| 6 water tiles | 195.1 ha | 0 | 4.39 ha | 0–4.8 % per tile, 2.3 % over all |
+| 5 H1 tiles | 165.0 ha | 819 m² | 33 m² | 0.03–0.11 % (0.8 % on a tile with 0.8 ha of canopy) |
+| 2 controls | 110.2 ha | 0 | 0 | 0 |
+
+- None of the removed cells carries a loss: the loss rules had already taken them out of the loss. Canopy and loss now agree, so `loss_pct_forest` is no longer understated on such tiles.
+- On the H1 tiles the written `canopy` band equals the old starting canopy minus exactly the removed cells.
+- Lake cells under a flat lidar survey without false canopy (324405817: 0.25 ha) change nothing.
+
+**Decision:** applied as part of method 4. No tile had been made with method 4 yet, so no extra rerun.
+
 ## 2026-11-10 – DGM1 from a local copy
 
 **Question:** with DGM1 downloaded once for the terrain test (`data/dgm1`), can `tile_loss()` read it from disk instead of streaming it, with identical results?
@@ -677,7 +705,7 @@ Same 25 tiles, with the original method (levelled, cubic bDOM).
 
 ## Open
 
-- **Statewide run:** continue it on the Threadripper with 16 workers, about 2.3 days (see 2026-10-23). It stopped on 2026-10-23 with 2,494 tiles done. With `method` = 4 (lidar reset, rvtr 55a3b00, loss filters; 2026-11-05 and 2026-11-09) all of them are redone, so it starts over: about 2.4 days for all 41,473. Install rvtr 55a3b00 on that machine first, and pilot 8 against 16 workers (the read settings of 2026-11-09 double the connections per worker). Steps in `CLAUDE.md`.
+- **Statewide run:** continue it on the Threadripper with 16 workers, about 2.3 days (see 2026-10-23). It stopped on 2026-10-23 with 2,494 tiles done. With `method` = 4 (lidar reset, rvtr 55a3b00, loss filters, the same filters for the starting canopy; 2026-11-05, 2026-11-09 and 2026-11-10) all of them are redone, so it starts over: about 2.4 days for all 41,473. Install rvtr 55a3b00 on that machine first, and pilot 8 against 16 workers (the read settings of 2026-11-09 double the connections per worker). Steps in `CLAUDE.md`.
 - **Terrain:** decide on the metrics, the storage and the statewide step (2026-11-09). `tile_loss()` now reads the local `data/dgm1` (2026-11-10). Only three hill blocks tested so far; harvest is not separated from disturbance.
 - **Regrowth:** wait for the next lidar cycle; meanwhile test bDOM for young regrowth (see 2026-10-22).
 - **Plots repo:** re-run its outputs (`data/*/canopy_loss/`), which still hold levelled, cubic results.

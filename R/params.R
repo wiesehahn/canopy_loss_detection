@@ -11,7 +11,8 @@ detection_params <- list(
   method        = 4,      # raise after a change in R/ or rvtr that alters the results
                           # 2: lidar resets the loss reference (2026-11-05)
                           # 3: rvtr 55a3b00, bDOM 2025 no longer 40 m high (2026-11-05)
-                          # 4: drops that are no lost trees left out, holes no longer filled (2026-11-09)
+                          # 4: drops that are no lost trees left out, holes no longer filled (2026-11-09);
+                          #    the same rules for the starting canopy (2026-11-10)
   res_m         = 1,      # m, DOM1's native grid; bDOM is resampled onto it
   veg_months    = 5:10,   # vegetation period, bDOM only
   min_cover     = 0.05,   # smallest share of the tile an epoch must reach

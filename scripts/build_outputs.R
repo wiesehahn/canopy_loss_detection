@@ -13,7 +13,8 @@
 #                  coverage columns, and for every measured tile the figures
 #                  process_tiles.R stored in tile_results.csv: the areas from
 #                  loss_metrics() (R/metrics.R), the loss per year as
-#                  loss_<year>_m2, and the number of lost trees. A tile without
+#                  loss_<year>_m2, and the number of lost trees, in all and
+#                  as lost_trees_<year> and lost_trees_<species>. A tile without
 #                  them keeps NA, and `reason` says why: too few epochs, no
 #                  DGM1, not processed yet, or what stopped it.
 #     tile_epochs  every finished tile's epoch table, bound together.
@@ -147,9 +148,13 @@ if (!file.exists(result_file)) {
            min(file.mtime(c(out_file, vrt_files))) > max(file.mtime(inputs))) {
   cli_alert_success("Mosaics and tile table are up to date: skipped")
 } else {
-  results <- read.csv(result_file, colClasses = c(tile_id = "character",
-                                                  epoch_dates = "character",
-                                                  params = "character"))
+  # The text columns as text: one that is empty in every row would otherwise
+  # read as NA throughout.
+  text_cols <- intersect(c("tile_id", "epoch_dates", "params", "loss_by_year",
+                           "trees_by_year", "trees_by_species"),
+                         names(read.csv(result_file, nrows = 0)))
+  results <- read.csv(result_file, colClasses = setNames(rep("character", length(text_cols)),
+                                                         text_cols))
   epochs  <- read.csv(epoch_file, colClasses = c(tile_id = "character"))
   # a tile redone in the same session after its results could not be written
   epochs  <- epochs[!duplicated(epochs[c("tile_id", "product", "year")], fromLast = TRUE), ]
@@ -172,20 +177,32 @@ if (!file.exists(result_file)) {
     }
   }
 
-  # The loss per year, from "2018:1234;2022:567" to a column per year, over
-  # every year that lost anything in some tile.
+  # The loss and the lost trees per year, and the trees per species, from
+  # "2018:1234;2022:567" to a column per key, over every key some tile has.
+  # NA for tiles not measured, and for tiles measured before the column was
+  # recorded (an empty text is a measured tile with none: zeros).
   cli_progress_step("Tile table")
-  by_year <- lapply(results$loss_by_year, \(s) {
-    if (is.na(s) || s == "") return(numeric())
-    kv <- do.call(rbind, strsplit(strsplit(s, ";")[[1]], ":"))
-    setNames(as.numeric(kv[, 2]), kv[, 1])
-  })
-  for (y in sort(unique(unlist(lapply(by_year, names))))) {
-    col <- vapply(by_year, \(v) if (y %in% names(v)) v[[y]] else 0, 0)
-    col[results$status != "measured"] <- NA
-    results[[paste0("loss_", y, "_m2")]] <- col
+  for (s in list(list(col = "loss_by_year", name = \(k) paste0("loss_", k, "_m2")),
+                 list(col = "trees_by_year", name = \(k) paste0("lost_trees_", k)),
+                 list(col = "trees_by_species", name = \(k) paste0("lost_trees_", k),
+                      keys = species_classes$name))) {
+    text <- results[[s$col]]
+    if (is.null(text)) next
+    text <- as.character(text)
+    counts <- lapply(text, \(x) {
+      if (is.na(x) || x == "") return(numeric())
+      kv <- do.call(rbind, strsplit(strsplit(x, ";")[[1]], ":"))
+      setNames(as.numeric(kv[, 2]), kv[, 1])
+    })
+    keys <- unique(unlist(lapply(counts, names)))
+    keys <- if (is.null(s$keys)) sort(keys) else intersect(s$keys, keys)
+    for (k in keys) {
+      v <- vapply(counts, \(x) if (k %in% names(x)) x[[k]] else 0, 0)
+      v[results$status != "measured" | is.na(text)] <- NA
+      results[[s$name(tolower(gsub(" ", "_", k)))]] <- v
+    }
+    results[[s$col]] <- NULL
   }
-  results$loss_by_year <- NULL
   results$epoch_dates  <- NULL  # the coverage's own, current, is in the table
 
   tiles <- st_read(coverage_file, "tiles", quiet = TRUE)

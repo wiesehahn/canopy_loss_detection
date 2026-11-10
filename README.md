@@ -22,7 +22,7 @@ Each one records the height of whatever is on top, tree crowns in a forest. Comp
    - it stays down in all later surveys, allowing for some regrowth.
 
    "The height it had before" is the last lidar height, or lower if a photo-based survey since has shown it lower. Photo-based surveys never raise it: they tend to read the canopy a little too high. A single survey that misreads the canopy is contradicted by the next one and not counted.
-4. **Leave out what cannot be a lost tree.** A height drop does not count where the height before was more than 65 m above the ground (wind turbines, pylons), where the surface afterwards lies more than 2 m below the ground (quarries, holes in a photo-based survey), or on a lake where a later lidar survey lies flat on the water: older lidar surveys draw a surface across open water.
+4. **Leave out what cannot be a lost tree.** A height drop does not count where the height before was more than 65 m above the ground (wind turbines, pylons), where the surface afterwards lies more than 2 m below the ground (quarries, holes in a photo-based survey), or on a lake where a later lidar survey lies flat on the water: older lidar surveys draw a surface across open water. The same structures and lakes are left out of the starting forest.
 5. **Clean up.** Specks narrower than 3 m and patches smaller than 20 m² are removed. Small holes inside a loss are kept, since single trees may still stand there. Each loss is dated to the first survey that shows it.
 6. **Leave out buildings.** Building footprints from the official cadastre (ALKIS) are removed, so every change counted is vegetation. Trees outside the forest, in gardens, along roads and in hedges, are kept.
 7. **Find the lost trees.** Within the lost area, single trees are found in the last lidar survey before the loss: tree tops as local height maxima, and the lost area split into their crowns. How far apart tops must be depends on height and species, following yield-table stand densities. Each tree gets the species of the [German tree species map 2018](https://doi.org/10.25625/XOZAGY) that most of its crown lies on.
@@ -38,7 +38,9 @@ The thresholds were chosen and checked against later lidar surveys that the dete
 | Coverage map | Where the data allowed a comparison at all (buildings excluded), so "no loss" can be told apart from "not observed" |
 | Starting forest | Where there was canopy (above 5 m) when the record starts |
 | Lost trees | The crown of each lost tree (with an ID unique across the state), its top and height, and its species |
-| Tile table | Per tile: forest area, lost area, loss per year, number of lost trees, and which surveys were used |
+| Tile table | Per tile: forest area, lost area, loss per year, number of lost trees (in all, per year and per species), and which surveys were used |
+| Results | [`docs/results.md`](docs/results.md): lost area and trees so far, per year and species |
+| Status | [`docs/status.md`](docs/status.md): how far processing is, and which survey years can show a loss |
 
 A loss can only be dated to the time between two surveys: after the last flight that still saw the canopy, and by the first flight that shows it gone. A cell with an earliest year of 2018 and a loss year of 2022 lost its canopy at some point between those two flights.
 

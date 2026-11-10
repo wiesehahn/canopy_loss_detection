@@ -22,7 +22,7 @@ One GeoTIFF per measured tile: 1000 × 1000 cells of 1 m, unsigned 32-bit intege
 |---|---|---|---|
 | 1 | `loss_year` | year, e.g. `2022`; empty | The year of the first survey that shows the canopy gone: the latest year the loss can have happened. Empty where no loss was detected, and where nothing was observed (see `observed`). |
 | 2 | `observed` | `1`, `0` | `1` where at least two surveys could be compared. `0` where they could not (no survey overlap), and under buildings. |
-| 3 | `canopy` | `1`, `0` | `1` where something stood at least 5 m above the ground when the record starts: trees, inside or outside the forest. `0` elsewhere, including under buildings. |
+| 3 | `canopy` | `1`, `0` | `1` where something stood at least 5 m above the ground when the record starts: trees, inside or outside the forest. `0` elsewhere, including under buildings, where the surface stood more than 65 m above the ground (wind turbines, pylons), and on lakes where a lidar survey lies flat on the water (an older lidar survey drew a surface across it). |
 | 4 | `loss_from` | year, e.g. `2018`; empty | The year of the last survey that still saw the canopy: the earliest year the loss can have happened. Empty exactly where `loss_year` is empty. |
 | 5 | `species` | `0`–`12`; empty | On the crowns of lost trees, the tree's species (codes below). Empty elsewhere, including loss pixels that got no tree. |
 | 6 | `crown` | tree ID; empty | On the crowns of lost trees, the tree's ID: one crown, one ID, unique across all tiles. |
@@ -112,6 +112,8 @@ One polygon per LGLN tile, for all of Lower Saxony.
 | `loss_pct_forest` | `loss_forest_m2` as % of `forest_m2`: the share of the canopy lost |
 | `lost_trees` | Number of lost trees found in the tile (`tree_top` pixels) |
 | `loss_<year>_m2` | Lost area per year of detection (`loss_year`), one column for every year with loss in some tile. They add up to `loss_m2`. |
+| `lost_trees_<year>` | Lost trees per year of detection (the `loss_year` of the tree's top), one column for every year with lost trees in some tile. They add up to `lost_trees`. Empty for tiles processed before these columns were added (method 4). |
+| `lost_trees_<species>` | Lost trees per species (`species` of the tree, names in lower case with `_` for spaces, e.g. `lost_trees_douglas_fir`, `lost_trees_none`), one column for every species with lost trees in some tile. They add up to `lost_trees`. Empty as above. |
 | `reason` | Empty for measured tiles; otherwise why there are no values: `fewer than two epochs in the tile index`, `no DGM1 terrain model`, `not processed yet`, `only epoch, nothing to compare`, `no epoch overlaps another`, or `failed:` and the error |
 
 All areas are in m², rounded to 0.1. They are empty (NA) for tiles that were not measured.
@@ -146,6 +148,10 @@ The columns are those of the tile table from `status` to `lost_trees`, plus:
 |---|---|
 | `epoch_dates` | The coverage's `epoch_dates` when the tile was processed |
 | `loss_by_year` | Lost area per year as text, e.g. `2018:135171;2022:331473` (year:m²); the tile table spreads it into the `loss_<year>_m2` columns |
+| `trees_by_year` | Lost trees per year as text, e.g. `2018:812;2022:1545`; spread into `lost_trees_<year>` |
+| `trees_by_species` | Lost trees per species as text, e.g. `beech:30;spruce:310`; spread into `lost_trees_<species>` |
+
+A table from before a column was added gets that column, empty, at the start of the next run.
 
 ## Coverage: `lgln_coverage.gpkg`
 
@@ -173,3 +179,8 @@ Written by step 1, before any tile is processed.
 | `dgm1/<tile_id>.tif`, `dgm1/index.csv` | Optional local copy of DGM1 from `scripts/get_dgm1.R` (about 190 GB). The flight per tile is the one rvtr streams (newest file year, then newest date), and the index holds its date, year and URL. When present, the run reads it instead of streaming DGM1. The results are the same, as long as the copy is current, so rerun the script when LGLN publishes new DGM1 flights. Set `options(cld.dgm_dir = "")` to stream anyway. |
 
 The maps of data availability are in the repository, not in `data/`: `docs/images/coverage_epochs.png` (usable surveys per tile), `coverage_lidar.png` (lidar surveys per tile) and `coverage_latest.png` (year of the latest usable survey). They are redrawn with the coverage.
+
+Two short reports are also in the repository. `scripts/write_reports.R` writes them at the end of every run, from `lgln_coverage.gpkg`, `tile_results.csv`, `epochs.csv`, `runs.csv` and `params/`, and rewrites them only when their content changes.
+
+- `docs/results.md`: lost area and trees per year and species, summed over the tiles done with the current settings. While not all tiles are done, these are partial sums, not statewide figures.
+- `docs/status.md`: tiles done, to redo and not yet done, the survey years tiles can show a loss in, and run times and failures.

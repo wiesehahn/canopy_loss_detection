@@ -9,6 +9,8 @@
 #      and the tree species map           scripts/get_species.R
 #   2. canopy loss per tile               scripts/process_tiles.R
 #   3. mosaic and per-tile table          scripts/build_outputs.R
+#      and the status and results pages   scripts/write_reports.R (docs/status.md,
+#                                         docs/results.md)
 #
 # Every step does only what is new, so running this again is cheap and picks
 # up what has changed:
@@ -21,7 +23,8 @@
 #      since they were done, or that were done with other settings
 #      (R/params.R). The rest is skipped. A stopped run picks up where it was.
 #   3. The mosaics and the table are rebuilt when step 2 has finished tiles
-#      since the last build.
+#      since the last build. The status and results pages are written every
+#      time (it takes seconds) and change only when their content does.
 #
 # Options, set before sourcing (see scripts/process_tiles.R):
 #   options(cld.bbox = c(xmin, ymin, xmax, ymax))  only tiles in this box (EPSG:25832)
@@ -54,5 +57,6 @@ for (input in list(
 cli_h1("2 / 3  Canopy loss per tile")
 source("scripts/process_tiles.R")
 
-cli_h1("3 / 3  Mosaics and tile table")
+cli_h1("3 / 3  Mosaics, tile table and reports")
 source("scripts/build_outputs.R")
+source("scripts/write_reports.R")

@@ -28,6 +28,11 @@
 #   built  TRUE under a building footprint (grown by `building_grow`). year,
 #          from and seen are already masked with it; the caller masks anything
 #          else it derives, such as the starting canopy.
+#   no_canopy  TRUE where the first surface stands high but is no tree, by the
+#          rules loss_year() leaves such drops out by: more than `max_height`
+#          above DGM1 (wind turbines, pylons), or a lake that a lidar survey
+#          shows lying flat on DGM1 (an old lidar surface run across open
+#          water). The caller masks the starting canopy with it.
 #   grid, srf   the buffered grid and the surfaces on it, for anything else
 #          the caller wants read on the same cells (starting canopy, shading).
 #          The grid is a temporary file, the caller's to unlink.
@@ -46,7 +51,7 @@ tile_loss <- function(tile_id, p, dgm_dir = getOption("cld.dgm_dir", "data/dgm1"
     ep$reason[ep$used] <- reason
     ep$used <- FALSE
     list(ep = ep, reason = reason, year = NULL, from = NULL, seen = NULL,
-         built = NULL, grid = NULL, srf = NULL, dtm = NULL)
+         built = NULL, no_canopy = NULL, grid = NULL, srf = NULL, dtm = NULL)
   }
   if (nrow(used) < 2) return(unusable("only epoch, nothing to compare"))
 
@@ -65,11 +70,24 @@ tile_loss <- function(tile_id, p, dgm_dir = getOption("cld.dgm_dir", "data/dgm1"
   dtm <- tile_dtm(grid, dgm_dir) |>
     resample(srf[[1]], method = "bilinear") |>
     toMemory()
-  year <- loss_year(d, used$year, p, lidar = used$product == "dsm",
-                    above_ground = Reduce(cover, as.list(srf)) - dtm,
-                    lake = lakes_on(dtm, p$lakes)) |>
+  lidar        <- used$product == "dsm"
+  above_ground <- Reduce(cover, as.list(srf)) - dtm
+  lake         <- lakes_on(dtm, p$lakes)
+  year <- loss_year(d, used$year, p, lidar = lidar, above_ground = above_ground,
+                    lake = lake) |>
     crop(tile)
   from <- loss_from(crop(srf, tile), used$year, year)
+
+  # The same rules for the starting canopy, so it holds no turbine and no lake
+  # that a loss could not be counted on either. A lidar surface's height is
+  # read from it directly: where it has a value, that is the height
+  # loss_year() tests.
+  no_canopy <- above_ground > p$max_height
+  if (any(lidar) && unlist(global(lake, "max", na.rm = TRUE)) == 1) {
+    flat <- app(abs(srf[[which(lidar)]] - dtm) <= p$lake_flat, any, na.rm = TRUE)
+    no_canopy <- no_canopy | (lake & flat)
+  }
+  no_canopy <- crop(cover(no_canopy, init(no_canopy, FALSE)), tile)
 
   # Buildings are not vegetation: no loss is counted on them, and they are
   # left out of what was observed, so no share is taken against them either.
@@ -78,5 +96,5 @@ tile_loss <- function(tile_id, p, dgm_dir = getOption("cld.dgm_dir", "data/dgm1"
   from  <- mask(from, built, maskvalues = TRUE)
   seen  <- ifel(built, 0, seen)
   list(ep = ep, reason = "", year = year, from = from, seen = seen, built = built,
-       grid = grid, srf = srf, dtm = dtm)
+       no_canopy = no_canopy, grid = grid, srf = srf, dtm = dtm)
 }

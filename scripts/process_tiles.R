@@ -15,7 +15,8 @@
 #                the two apart.
 #     canopy     1 where the stand stood above `canopy_height` when the record
 #                starts, over LGLN's DGM1 - the area that had something to lose.
-#                Buildings are 0.
+#                Buildings are 0, and so is what tile_loss() finds is no tree:
+#                over max_height, or a lake under an old lidar surface.
 #     loss_from  the year of the last survey before the loss - the earliest
 #                year it can have gone. The loss lies between the two flights.
 #     species    the lost trees (R/trees.R), on their crowns: the tree's
@@ -29,7 +30,8 @@
 # only it writes them, so the parallel workers never collide:
 #
 #   data/tile_results.csv  one row per finished tile, measured or skipped: its
-#                areas (R/metrics.R), loss per year and lost trees, and what it
+#                areas (R/metrics.R), loss per year, lost trees in all and per
+#                year and species, and what it
 #                was made from - the coverage's epoch_dates and the settings'
 #                params_id(). A tile is done once its row is here.
 #   data/epochs.csv  every finished tile's epoch table, as lgln_epochs() gives
@@ -39,7 +41,8 @@
 #
 # What runs: tiles not done yet, and done tiles whose epoch_dates in the
 # coverage have changed since (LGLN published a new or repeated flight) or
-# that were made with other settings (R/params.R). A tile to be redone loses
+# that were made with other settings (R/params.R) - tile_state() in
+# R/status.R, which write_reports.R reports from too. A tile to be redone loses
 # its old rows first; its raster is overwritten. A stopped run redoes only the
 # tiles that were still in the workers. Every combination of settings used is
 # kept as data/params/<params_id>.txt.
@@ -153,23 +156,20 @@ results <- read_table(result_file, c("tile_id", "epoch_dates", "params"))
 if (is.null(results))
   results <- data.frame(tile_id = character(), epoch_dates = character(),
                         params = character())
-prev <- results[match(cov$tile_id, results$tile_id), ]
-is_new     <- is.na(prev$tile_id)
-new_data   <- !is_new & prev$epoch_dates != cov$epoch_dates
-new_params <- !is_new & !new_data & prev$params != pid
-runs       <- read_table(run_log)
-n_failed   <- sum(is_new & cov$tile_id %in% runs$tile_id[runs$status == "failed"])
-todo <- cov$tile_id[is_new | new_data | new_params]
+state    <- tile_state(cov, results, pid)  # R/status.R
+n        <- table(factor(state, c("done", "new", "new_data", "new_params")))
+runs     <- read_table(run_log)
+n_failed <- sum(state == "new" & cov$tile_id %in% runs$tile_id[runs$status == "failed"])
+todo     <- cov$tile_id[state != "done"]
 
-n_skip <- sum(!is_new & !new_data & !new_params)
 cli_alert_info("{nrow(cov)} tile{?s} selected")
 cli_bullets(c(
-  "*" = if (n_skip) "{n_skip} done and unchanged: skipped",
-  "*" = if (any(is_new)) paste0("{sum(is_new)} not done yet",
+  "*" = if (n[["done"]]) "{n[['done']]} done and unchanged: skipped",
+  "*" = if (n[["new"]]) paste0("{n[['new']]} not done yet",
                if (n_failed) " ({n_failed} of them failed before and are retried)"),
-  "*" = if (any(new_data)) "{sum(new_data)} with new LGLN flights since: redone",
-  "*" = if (any(new_params))
-          "{sum(new_params)} made with other settings: redone (settings now {.val {pid}})"))
+  "*" = if (n[["new_data"]]) "{n[['new_data']]} with new LGLN flights since: redone",
+  "*" = if (n[["new_params"]])
+          "{n[['new_params']]} made with other settings: redone (settings now {.val {pid}})"))
 if (length(todo))
   cli_alert_info(if (nzchar(dgm_dir)) "DGM1 read from the local copy in {.file {dgm_dir}}"
                  else "DGM1 streamed from LGLN (no local copy)")
@@ -187,12 +187,43 @@ drop_rows <- function(file, ids) {
 drop_rows(result_file, todo)
 drop_rows(epoch_file, todo)
 
+# The columns of the result table. Rows are appended without a header, so a
+# table written before a column was added gets that column first, empty: its
+# old rows then line up with the new ones.
+result_cols <- c("tile_id", "status", "reason", "epoch_dates", "params", "processed",
+                 "first_year", "last_year", "n_used", "observed_m2", "observed_pct",
+                 "forest_m2", "loss_m2", "loss_pct", "loss_forest_m2",
+                 "loss_pct_forest", "lost_trees", "loss_by_year", "trees_by_year",
+                 "trees_by_species")
+if (file.exists(result_file)) {
+  x <- read.csv(result_file, colClasses = "character")  # written back exactly as read
+  if (!identical(names(x), result_cols)) {
+    added <- setdiff(result_cols, names(x))
+    x[added] <- NA
+    tmp <- paste0(result_file, ".part")
+    write.csv(x[result_cols], tmp, row.names = FALSE)
+    replace_file(tmp, result_file)
+    if (length(added))
+      cli_alert_info("{.file {result_file}}: added the column{?s} {.field {added}}, empty for the tiles done before")
+  }
+  rm(x)
+}
+
 # Ground lost per year, as "2018:1234;2022:567" - one text column, since the
 # years differ from tile to tile. build_outputs.R spreads it into columns.
 years_text <- function(r, years) {
   a <- loss_by_year(r, years)
   a <- a[a > 0]
   paste(names(a), a, sep = ":", collapse = ";")
+}
+
+# How often each value occurs, in the same form: "2018:12;2022:340" for the
+# lost trees' years, "beech:30;spruce:310" for their species. Values that do
+# not occur are left out; a factor keeps its level order.
+counts_text <- function(x) {
+  n <- table(x)
+  n <- n[n > 0]
+  paste(names(n), as.vector(n), sep = ":", collapse = ";")
 }
 
 process_tile <- function(tile_id) {
@@ -210,7 +241,7 @@ process_tile <- function(tile_id) {
 
   canopy <- starting_canopy(tl$srf, tl$dtm, p$canopy_height) |>
     crop(tile_ext(tile_id))
-  canopy <- ifel(tl$built, 0, canopy)
+  canopy <- ifel(tl$built | tl$no_canopy, 0, canopy)
   trees <- lost_trees(tl, tl$dtm, tile_id, p)
   if (is.null(trees)) trees <- rast(tl$year, nlyrs = 3, vals = NA)
   out <- c(tl$year, tl$seen, canopy, tl$from, trees)
@@ -231,13 +262,20 @@ process_tile <- function(tile_id) {
   if (!file.rename(part, file)) stop("cannot replace ", file, call. = FALSE)
 
   # The tile's row, measured here while the raster is in hand, so the tile
-  # table never has to read the rasters again.
+  # table never has to read the rasters again. A tree is its top pixel, which
+  # carries the tree's loss year and species.
+  v   <- values(out[[c("loss_year", "species", "tree_top")]], mat = TRUE)
+  top <- !is.na(v[, "tree_top"])
+  species <- factor(species_classes$name[match(v[top, "species"], species_classes$code)],
+                    levels = species_classes$name)
   row <- cbind(row,
                first_year = min(used$year), last_year = max(used$year),
                n_used = nrow(used),
                round(loss_metrics(out), 1),
-               lost_trees = unname(unlist(global(!is.na(out$tree_top), "sum"))),
-               loss_by_year = years_text(out, used$year))
+               lost_trees = sum(top),
+               loss_by_year = years_text(out, used$year),
+               trees_by_year = counts_text(v[top, "loss_year"]),
+               trees_by_species = counts_text(species))
   list(row = row, ep = cbind(tile_id = tile_id, tl$ep))
 }
 
@@ -269,11 +307,8 @@ run_one <- function(tile_id) {
 }
 
 # Append rows to a CSV, with the header only when the file is new. The columns
-# of a result row depend on its status, so rows are first put in one shape.
-result_cols <- c("tile_id", "status", "reason", "epoch_dates", "params", "processed",
-                 "first_year", "last_year", "n_used", "observed_m2", "observed_pct",
-                 "forest_m2", "loss_m2", "loss_pct", "loss_forest_m2",
-                 "loss_pct_forest", "lost_trees", "loss_by_year")
+# of a result row depend on its status, so rows are first put in one shape
+# (result_cols, above).
 append_csv <- function(x, file) {
   if (is.null(x) || !nrow(x)) return(invisible())
   new <- !file.exists(file)
@@ -309,7 +344,8 @@ start_workers <- function() {
     terraOptions(progress = 0)
     NULL
   })
-  clusterExport(cl, c("p", "dgm_dir", "tile_dir", "process_tile", "run_one", "years_text"),
+  clusterExport(cl, c("p", "dgm_dir", "tile_dir", "process_tile", "run_one", "years_text",
+                      "counts_text"),
                 envir = globalenv())
   cl
 }
