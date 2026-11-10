@@ -8,6 +8,7 @@ The steps of the workflow. Lower Saxony is split into 1 × 1 km map tiles, and e
 | 1 | `map_coverage.R` | Draws maps of that data availability (`docs/images/coverage_*.png`) |
 | 1 | `get_buildings.R` | Downloads the building outlines, so buildings can be left out |
 | 1 | `get_species.R` | Downloads the tree species map, so lost trees get a species |
+| (1) | `get_dgm1.R` | Optional, not run by `run.R`: keeps a local copy of the terrain model (DGM1, about 190 GB, about 2 h), so step 2 reads it from disk instead of LGLN's server, with the same results. Run it again to bring the copy up to date |
 | 2 | `process_tiles.R` | Finds forest loss and the lost trees in every tile (the main run, which takes days) |
 | 3 | `build_outputs.R` | Joins all the tiles into one map and one table |
 | – | `image_tile.R` | Makes a picture of the forest loss in one tile |

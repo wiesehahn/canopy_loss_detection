@@ -50,7 +50,8 @@
 #
 # Tiles come from data/lgln_coverage.gpkg (get_lgln_coverage.R), `comparable`
 # ones only: two epochs or more, and a DGM1 for the starting canopy. Every tile
-# is read remotely, nothing is downloaded, so LGLN's servers and the network
+# is read remotely, nothing is downloaded (DGM1 excepted, if a local copy is
+# there, see cld.dgm_dir below), so LGLN's servers and the network
 # set the pace: in testing, 4.7 s per tile at 16 workers, slower at 32, and at
 # 64 reads began to fail (docs/findings.md, 2026-10-23). Hence at most 16 by
 # default.
@@ -63,6 +64,9 @@
 #   options(cld.tile_ids = c("326005741"))         only these tiles
 #   options(cld.workers = 4)                       parallel workers, default half the
 #                                                  cores, at most 16; 1 runs here, for debugging
+#   options(cld.dgm_dir = "")                      where a local copy of DGM1 is
+#                                                  (scripts/get_dgm1.R), default data/dgm1;
+#                                                  "" or none there: DGM1 is streamed
 library(sf)
 library(terra)
 library(rvtr)
@@ -76,6 +80,9 @@ pid       <- params_id(p)
 bbox      <- getOption("cld.bbox")
 tile_ids  <- getOption("cld.tile_ids")
 n_workers <- getOption("cld.workers", min(16, max(1, detectCores() %/% 2)))
+dgm_dir   <- getOption("cld.dgm_dir", "data/dgm1")
+dgm_dir   <- if (length(dgm_dir) && nzchar(dgm_dir) && file.exists(file.path(dgm_dir, "index.csv")))
+  normalizePath(dgm_dir, "/") else ""
 
 coverage_file <- "data/lgln_coverage.gpkg"
 tile_dir      <- "data/tiles"
@@ -163,6 +170,9 @@ cli_bullets(c(
   "*" = if (any(new_data)) "{sum(new_data)} with new LGLN flights since: redone",
   "*" = if (any(new_params))
           "{sum(new_params)} made with other settings: redone (settings now {.val {pid}})"))
+if (length(todo))
+  cli_alert_info(if (nzchar(dgm_dir)) "DGM1 read from the local copy in {.file {dgm_dir}}"
+                 else "DGM1 streamed from LGLN (no local copy)")
 
 # Rows of the tiles about to run go first, so no tile ends up with two sets.
 # A tile with epoch rows but no result was stopped halfway, and loses them too.
@@ -186,7 +196,7 @@ years_text <- function(r, years) {
 }
 
 process_tile <- function(tile_id) {
-  tl <- tile_loss(tile_id, p)
+  tl <- tile_loss(tile_id, p, dgm_dir)
   on.exit(unlink(tl$grid))
   used <- tl$ep[tl$ep$used, ]
   file <- file.path(tile_dir, paste0(tile_id, ".tif"))
@@ -299,7 +309,7 @@ start_workers <- function() {
     terraOptions(progress = 0)
     NULL
   })
-  clusterExport(cl, c("p", "tile_dir", "process_tile", "run_one", "years_text"),
+  clusterExport(cl, c("p", "dgm_dir", "tile_dir", "process_tile", "run_one", "years_text"),
                 envir = globalenv())
   cl
 }

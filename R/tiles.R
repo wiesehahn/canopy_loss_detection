@@ -37,6 +37,42 @@ lakes_on <- function(template, file) {
   rasterize(v, template, background = 0) == 1
 }
 
+# DGM1 over `grid` (a raster file such as tile_grid() writes), the same cells
+# rvt_data_lgln(grid, product = "dtm") gives. With `dir`, the local copy that
+# scripts/get_dgm1.R keeps is read instead of LGLN's server: per DGM1 tile under
+# the grid its file there, or, if that one is missing, the same flight streamed
+# from the URL in the copy's index.csv. Tiles the index does not list have no
+# DGM1 at all and stay NA, as they do from rvtr. Without `dir`, with no index
+# there, or on a grid other than DGM1's own 1 m (which rvtr resamples), all is
+# streamed through rvtr. The copy is only read, so parallel workers can share it.
+tile_dtm <- function(grid, dir = NULL) {
+  stream <- function() rast(rvt_data_lgln(grid, product = "dtm"))
+  index <- if (length(dir) && nzchar(dir)) file.path(dir, "index.csv") else ""
+  if (!file.exists(index)) return(stream())
+  g <- rast(grid)
+  if (!isTRUE(all.equal(res(g), c(1, 1)))) return(stream())
+
+  # The DGM1 tiles the grid touches: lower-left corners in km.
+  e  <- as.vector(ext(g))  # xmin, xmax, ymin, ymax
+  kx <- seq(floor(e[1] / 1000), ceiling(e[2] / 1000) - 1)
+  ky <- seq(floor(e[3] / 1000), ceiling(e[4] / 1000) - 1)
+  ids <- sprintf("32%03d%04d", rep(kx, length(ky)), rep(ky, each = length(kx)))
+
+  idx <- read.csv(index, colClasses = "character")
+  idx <- idx[idx$tile_id %in% ids, ]
+  if (!nrow(idx)) return(stream())  # no DGM1 here at all, rvtr says so its way
+  local <- file.path(dir, paste0(idx$tile_id, ".tif"))
+  src <- ifelse(file.exists(local), local, paste0("/vsicurl/", idx$dgm1))
+
+  # The VRT rvtr builds at the native resolution (rvtr:::.lgln_vrt), over
+  # these sources instead.
+  out <- tempfile(fileext = ".vrt")
+  gdalraster::buildVRT(out, src, quiet = TRUE, cl_arg = c(
+    "-te", sprintf("%.6f", e[c(1, 3, 2, 4)]), "-tr", "1", "1",
+    "-allow_projection_difference", "-a_srs", "EPSG:25832"))
+  rast(out)
+}
+
 # A grid over the tile for rvt_data_lgln(), written out as write_grid() does
 # for a plot. The tile's corners already sit on whole metres, so every product
 # lands on its own cells. `buffer` reaches into the neighbouring tiles, for

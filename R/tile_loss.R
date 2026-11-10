@@ -32,7 +32,11 @@
 #          the caller wants read on the same cells (starting canopy, shading).
 #          The grid is a temporary file, the caller's to unlink.
 #   dtm    DGM1 on that grid, likewise.
-tile_loss <- function(tile_id, p) {
+#
+# `dgm_dir` is a local copy of DGM1 (scripts/get_dgm1.R) to read instead of
+# LGLN's server, the same cells either way (tile_dtm() in R/tiles.R). Where
+# there is none, DGM1 is streamed.
+tile_loss <- function(tile_id, p, dgm_dir = getOption("cld.dgm_dir", "data/dgm1")) {
   bare <- tile_grid(tile_id, 0, p$res_m)
   on.exit(unlink(bare))
   ep <- lgln_epochs(bare, p$veg_months, p$min_cover)
@@ -58,7 +62,7 @@ tile_loss <- function(tile_id, p) {
   if (unlist(global(seen, "max", na.rm = TRUE)) == 0)
     return(unusable("no epoch overlaps another"))
 
-  dtm <- rast(rvt_data_lgln(grid, product = "dtm")) |>
+  dtm <- tile_dtm(grid, dgm_dir) |>
     resample(srf[[1]], method = "bilinear") |>
     toMemory()
   year <- loss_year(d, used$year, p, lidar = used$product == "dsm",

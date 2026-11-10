@@ -170,5 +170,6 @@ Written by step 1, before any tile is processed.
 | `params/<params>.txt` | Each set of settings tiles were made with, under the fingerprint in the `params` column |
 | `runs.csv` | One row per attempt at a tile: `tile_id`, `status` (`measured`, `skipped` or `failed`), `seconds`, `error` (the message of a failed tile, which is retried on the next run) and `finished` |
 | `images/canopy_loss_<tile_id>.webp` | Images from `scripts/image_tile.R` |
+| `dgm1/<tile_id>.tif`, `dgm1/index.csv` | Optional local copy of DGM1 from `scripts/get_dgm1.R` (about 190 GB). The flight per tile is the one rvtr streams (newest file year, then newest date), and the index holds its date, year and URL. When present, the run reads it instead of streaming DGM1. The results are the same, as long as the copy is current, so rerun the script when LGLN publishes new DGM1 flights. Set `options(cld.dgm_dir = "")` to stream anyway. |
 
 The maps of data availability are in the repository, not in `data/`: `docs/images/coverage_epochs.png` (usable surveys per tile), `coverage_lidar.png` (lidar surveys per tile) and `coverage_latest.png` (year of the latest usable survey). They are redrawn with the coverage.

@@ -16,6 +16,26 @@ The canopy surface from a later lidar survey serves as a reference. Lidar measur
   - Changes between the last bDOM and the reference survey cannot have been detected, so "found" is a lower bound.
   - The reference lidar flights are mostly in March (leaf-off). In broadleaf stands they can read the canopy lower, which would count some false detections as confirmed.
 
+## 2026-11-10 – DGM1 from a local copy
+
+**Question:** with DGM1 downloaded once for the terrain test (`data/dgm1`), can `tile_loss()` read it from disk instead of streaming it, with identical results?
+
+**Setup:** `tile_dtm()` (R/tiles.R) builds the same VRT as rvtr at 1 m, over the local files, and streams any tile missing from the copy from the URL in its index. Compared with streaming:
+- the DGM1 on the 50 m buffered grid of 30 tiles: 12 random, 10 at the edge of DGM1 coverage, and 8 where the newest file year is not the newest date (101 such tiles; rvtr takes the file year);
+- one grid with the centre tile missing from the copy;
+- all 7 bands of the 25 pilot tiles, through the whole `tile_loss()`, starting canopy and lost trees.
+
+6 workers, this PC.
+
+**Results:**
+- **DGM1:** identical on all 30 grids, including the NA cells outside coverage (up to 828,329 of 1.21 M).
+- **Missing tile:** 1 source streamed, 8 local, identical.
+- **Pilot:** 0 cells differ in any band, in any of the 25 tiles.
+- **Time for the DGM1 read:** 1.0 s local against 2.6 s streamed (mean of 30). The whole-tile times (33.4 against 30.0 s) are no measure: each tile ran local first, so the streamed run read the same DOM/bDOM from GDAL's cache.
+- `scripts/get_dgm1.R` run on the existing copy: nothing to fetch, index unchanged. Its download function got 3 tiles byte-identical to the copy and rejected a missing URL.
+
+**Decision:** read the local copy when `data/dgm1/index.csv` is there (`cld.dgm_dir`, `""` to stream). It saves about 1.6 s per tile here and takes the DGM1 load off LGLN's servers. On the Threadripper the copy is on a network share, so its read speed there shows in the pilot. The copy must be kept current with `get_dgm1.R`; `run.R` does not check it.
+
 ## 2026-11-09 – Read speed and behaviour on interruptions
 
 **Question:** before the statewide run: which parts cost the most, can they be sped up, and does the run survive interruptions?
@@ -36,6 +56,78 @@ The canopy surface from a later lidar survey serves as a reference. Lidar measur
   | half a result row and half a raster | not handled before: tile counted as done, mosaic on a broken raster |
 
 **Decision:** read settings and a 300 s request limit set in `process_tiles.R`. Rasters are written under another name and renamed when complete; half a last line is cut from the tables at startup; a table that cannot be replaced stops the run; duplicate epoch rows are dropped in the outputs. The settings still need a short pilot on the statewide machine, at 8 and 16 workers: there LGLN's servers set the limit.
+
+## 2026-11-09 – Terrain metrics and canopy loss
+
+**Question:** does canopy loss depend on terrain (slope, exposure, solar radiation in the growing season, landform)? Which metrics are worth computing statewide, at which resolution, and what do they cost?
+
+**Setup:**
+- **DGM1 kept locally:** `data/dgm1/<tile_id>.tif`, 49,708 tiles, 186.7 GB, about 2 h at 24 MB/s; `index.csv` holds each tile's file and date. 21 tiles compared with `rvt_data_lgln()` are identical cell by cell.
+  - The DGM1 index has 71,177 rows. **rvtr follows the newest file year, not the newest `Aktualitaet`.** They differ for 101 tiles: a `_2022` file can carry an older date than a `_2020` one. Taking the newest date gave differences of up to 3.5 m.
+  - 370 tiles have two `_2022` files, a tidal-area release beside the normal one. Identical on 6 of 6 tiles tested.
+- **Blocks, about 10 × 10 km:** Harz around the pilot (97 tiles, 91 % spruce), Solling at E 530 / N 5730 (97, half spruce), Süntel at E 530 / N 5780 (100, mostly broadleaf), and the most forested lowland square at E 348 / N 5814 (100). The hill blocks were run through `tile_loss()` with `method` = 4 into a scratch folder; the lowland tiles are the older ones in `data/tiles`. The Hils (E 550 / N 5750) was dropped: it has no comparable tiles. The blocks show what matters and were not sampled at random, so they are no statewide figures.
+- **Metrics:** 10 m DGM averaged from 1 m, 25 layers from 21 runs. Each tile uses its own 3 × 3 km mosaic, reach 1 km, centre kept. Radiation is clear-sky insolation for May–October, also as a ratio to a horizontal surface (`insol_rel`). It describes the site, not the weather of a year.
+- **Loss:** on 10 m cells, m² of loss within m² of observed starting canopy (2.75 million cells, 20,400 ha of canopy, 3,880 ha of loss). It includes harvest; the data do not separate it from storm or bark beetle.
+- **Statistics:** loss share per class with 95 % intervals by bootstrap over tiles. Added value of a metric: extra deviance explained by a smooth of it in a `mgcv::bam` on top of species, elevation and a tile effect, on 300,000 cells. Comparing within tiles takes out survey dates and region.
+
+**Checks passed:** the 10 m sums equal `loss_forest_m2` and `forest_m2` of the tile table exactly. `insol_rel` is 1.06 on south slopes and 0.81 on north slopes above 10°, and 1.00 on flat ground.
+
+**Results:**
+
+| block | canopy (ha) | lost | median slope |
+|---|---|---|---|
+| Harz | 6,194 | 30.1 % | 9.2° |
+| Solling | 6,659 | 18.6 % | 4.2° |
+| Süntel | 4,641 | 13.5 % | 7.0° |
+| lowland | 2,901 | 5.3 % | 1.6° |
+
+- **Terrain adds little.** Species, elevation and tile explain 15–36 % of the deviance. On top of that, elevation adds 1.8 points in the Harz (without it in the base) and any other metric at most 1.4 points in a block (0.03–0.47 pooled). The ranking differs by block:
+
+  | metric | pooled | Harz | Solling | Süntel | lowland |
+  |---|---|---|---|---|---|
+  | elevation | 0.55 | 1.78 | 0.38 | 0.26 | 0.29 |
+  | sky view factor | 0.47 | 0.43 | 0.04 | 1.44 | 0.15 |
+  | slope | 0.37 | 0.30 | 0.05 | 1.39 | 0.13 |
+  | deviation, 500 m | 0.25 | 0.59 | 0.07 | 0.74 | 0.16 |
+  | beam insolation | 0.20 | 0.24 | 0.17 | 0.80 | 0.07 |
+  | geomorphons, 300 m | 0.16 | 0.40 | 0.17 | 0.25 | 0.06 |
+  | `insol_rel` | 0.16 | 0.21 | 0.16 | 0.77 | 0.06 |
+  | aspect (north + east) | 0.16 | 0.80 | 0.05 | 0.13 | 0.05 |
+  | mean curvature | 0.04 | 0.03 | 0.64 | 0.26 | 0.04 |
+  | wetness index | 0.05 | 0.02 | 0.42 | 0.19 | 0.06 |
+
+- **Steep slopes:** no more loss, rather less. Süntel, all species: 16.0 % (13.8–18.2) at 5–10°, 5.3 % (3.8–7.1) at 20–30°. Harz spruce: 33.9 % (26.0–41.3) at 2–5°, 23.7 % (17.8–30.4) at 20–30°, intervals overlapping. Solling spruce shows no trend (28–35 %), so the Solling fall from 24 % to 12 % over all species is species mix. Harvest access could explain the decline; untested.
+- **Southern slopes:** no consistent effect, and not more loss in the south. Harz spruce above 5°: north 35.0 % (28.7–42.1), south 19.6 % (12.9–27.2). Solling spruce: flat, 27–31 %. Süntel spruce (560 ha): erratic, highest in the west and south-west. Broadleaf: flat, 8–11 %.
+- **Radiation:** no monotonic relation. Loss is highest around `insol_rel` 0.9–1.03 and lower at both ends (Harz 25 % below 0.8, 37 % at 0.9–0.97, 21 % at 1.03–1.1). Both ends are steep ground, so this mostly repeats the slope result.
+- **Landform:** more loss on upper positions in the Harz and Süntel. Spruce over the hill blocks: peak 38.8 %, ridge 33.4 %, hollow 24.6 %, valley 23.8 %. Broadleaf: ridge 12.4 %, hollow 9.0 %. Not in the Solling. Wind exposure would fit, but was not tested.
+- **Redundancy (slopes above 10°, Spearman):** global, beam and relative insolation 0.99–1.00; sky view, positive openness, sky illumination and diffuse insolation 0.91–0.98; TPI and deviation 0.98 at both radii; slope × aspect index with insolation 0.90–0.92.
+- **Lidar against bDOM:** only the Harz has both (472 and 1,392 ha), so the check is weak. Both show the same north-over-south pattern (north 1.23 and 1.23, south 0.77 and 0.69 of the mean) and less loss above 20° (0.83 and 0.78); SE and W differ (1.00 and 0.62, 0.70 and 1.06). No sign that the patterns come from bDOM, but lidar and bDOM cover different years. Solling is lidar only, Süntel and the lowland bDOM only, so differences between blocks are confounded with the source.
+
+**Rolling window:** against one contiguous run of the Harz block (869,301 cells), slope, TPI, sky view and geomorphons are identical. Insolation differs by at most 5.6 kWh/m² (mean 0.3), presumably because each tile uses its own latitude.
+
+**Resolution (Harz):** slope at 25 m and 1 m averaged to 10 m rank close to 10 m slope (Spearman 0.96 and 0.94), but only 80.5 % of geomorphon cells keep their class at 25 m. Added deviance for slope: 10 m 0.31, 25 m 0.24. On 30 tiles, 1 m slope averaged gives 0.35 against 0.18 at 10 m; it costs 4.3 s per tile and may reflect micro-relief.
+
+**Cheaper insolation** (30 hill tiles against every 5th day, 30 min, 36 directions):
+
+| days / minutes / directions | s per tile | RMSE | mean bias |
+|---|---|---|---|
+| 5 / 30 / 36 (reference) | 7.3 | | |
+| 5 / 60 / 16 | 3.5 | 0.40 % | −0.03 % |
+| 10 / 60 / 16 | 2.2 | 0.93 % | −0.82 % |
+| 15 / 60 / 16 | 1.8 | 1.68 % | −1.59 % |
+
+**Cost, measured** (1 thread per tile, 8 workers, development machine; statewide figures assume 41,473 tiles and 16 workers, untested at that scale):
+
+| set | s per tile | statewide |
+|---|---|---|
+| all 21 metric runs | 22.5 | about 16 h |
+| shortlist below | 6.6 | about 4.7 h |
+| shortlist without insolation | 2.9 | about 2.1 h |
+| 10 m DGM, all 49,708 tiles, once | 0.4 | about 20 min |
+
+Slope, aspect, TPI, deviation and curvature take 0.15 s each; geomorphons 0.4 / 1.0 / 3.1 s at 100 / 300 / 1000 m; sky view 0.8 s; turning a tile's loss into cells 0.7 s.
+
+**Recommendation (not decided):** compute at 10 m from the local DGM, rolling window: elevation, slope, aspect (with a slope × aspect index), geomorphons at 300 m, TPI at 500 m, sky view factor, and `insol_rel` with 5 / 60 / 16. Leave out the other insolation components, daylight, openness, sky illumination, deviation, dominance, geomorphons at 1000 m. Curvature and the wetness index only helped in the Solling; the wetness index would need a real catchment, not a window. No code was added; the test scripts are not part of the repo.
 
 ## 2026-11-09 – What further filters would remove
 
@@ -586,6 +678,7 @@ Same 25 tiles, with the original method (levelled, cubic bDOM).
 ## Open
 
 - **Statewide run:** continue it on the Threadripper with 16 workers, about 2.3 days (see 2026-10-23). It stopped on 2026-10-23 with 2,494 tiles done. With `method` = 4 (lidar reset, rvtr 55a3b00, loss filters; 2026-11-05 and 2026-11-09) all of them are redone, so it starts over: about 2.4 days for all 41,473. Install rvtr 55a3b00 on that machine first, and pilot 8 against 16 workers (the read settings of 2026-11-09 double the connections per worker). Steps in `CLAUDE.md`.
+- **Terrain:** decide on the metrics, the storage and the statewide step (2026-11-09). `tile_loss()` now reads the local `data/dgm1` (2026-11-10). Only three hill blocks tested so far; harvest is not separated from disturbance.
 - **Regrowth:** wait for the next lidar cycle; meanwhile test bDOM for young regrowth (see 2026-10-22).
 - **Plots repo:** re-run its outputs (`data/*/canopy_loss/`), which still hold levelled, cubic results.
 - **Lost trees:**
