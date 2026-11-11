@@ -6,7 +6,8 @@
 # Writes
 #
 #   data/tiles/<tile_id>.tif  one raster per measured tile, seven layers, 1 m,
-#                32-bit (for the tree IDs), the tile's own 1 x 1 km:
+#                32-bit (for the tree IDs), the tile's own 1 x 1 km, with
+#                overviews to 8 m:
 #     loss_year  the year of the first survey that shows the loss, NA where
 #                the canopy never went - the latest year it can have gone.
 #     observed   1 where some epoch could be differenced, 0 where none could
@@ -247,18 +248,37 @@ process_tile <- function(tile_id) {
   out <- c(tl$year, tl$seen, canopy, tl$from, trees)
   names(out) <- c("loss_year", "observed", "canopy", "loss_from",
                   "species", "crown", "tree_top")
-  # Copied through gdal_translate -stats, so complete band statistics sit
-  # inside the GeoTIFF. terra writes only min and max, and a viewer such as
-  # QGIS would compute the rest and leave them beside it as .aux.xml. The
+  # Copied by gdal_translate into a layout a viewer reads fast: blocks of
+  # 256 x 256, band after band, and overviews at 2, 4 and 8 m, so a view of one
+  # band zoomed out does not decode all seven at full resolution
+  # (docs/findings.md, 2026-11-11). ZSTD at level 15 without a predictor:
+  # years, classes and IDs beside NoData compress worse as differences, and
+  # this is 38 % smaller than DEFLATE with one, reads faster, and takes 0.1 s
+  # longer to write. The overviews take the most common value
+  # (mode) with NoData counted as a value of its own: a coarse cell shows a loss
+  # where loss covers most of it, not wherever one cell of it is lost. So NoData
+  # is set only after them. Then the band statistics, so complete ones sit
+  # inside the GeoTIFF: terra writes only min and max, and a viewer such as QGIS
+  # would compute the rest and leave them beside it as .aux.xml (a band with no
+  # values gets empty ones, with a warning that is of no use here). The
   # temporary file goes with the session's temp folder (run_one()). Written
   # under another name and renamed when complete, so a raster under the tile's
   # name is always a whole one.
   tmp <- tempfile(fileext = ".tif")
-  writeRaster(out, tmp, datatype = "INT4U")
+  writeRaster(out, tmp, datatype = "INT4U")  # NA as 4294967295
   part <- paste0(file, ".part")
   sf::gdal_utils("translate", tmp, part,
-                 options = c("-of", "GTiff", "-stats", "-co", "COMPRESS=DEFLATE", "-co", "PREDICTOR=2"),
+                 options = c("-of", "GTiff", "-a_nodata", "none", "-co", "TILED=YES",
+                             "-co", "INTERLEAVE=BAND", "-co", "COMPRESS=ZSTD",
+                             "-co", "ZSTD_LEVEL=15"),
                  config_options = c(GTIFF_SRS_SOURCE = "EPSG"))
+  gdalraster::set_config_option("GTIFF_SRS_SOURCE", "EPSG")
+  ds <- methods::new(gdalraster::GDALRaster, part, read_only = FALSE)
+  ds$quiet <- TRUE
+  ds$buildOverviews("MODE", c(2, 4, 8), 0)
+  ds$setNoDataValue(1, 4294967295)  # a GeoTIFF has one for all bands
+  for (b in seq_len(nlyr(out))) suppressWarnings(ds$getStatistics(b, FALSE, TRUE))
+  ds$close()
   if (!file.rename(part, file)) stop("cannot replace ", file, call. = FALSE)
 
   # The tile's row, measured here while the raster is in hand, so the tile

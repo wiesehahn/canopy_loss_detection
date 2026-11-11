@@ -8,6 +8,10 @@
 #                                the one band it is, not as an RGB image. The
 #                                species mosaic carries the species' names and
 #                                colours, and a raster attribute table.
+#   data/canopy_loss_<layer>.vrt.ovr  its overviews, 8 m and coarser, so a
+#                                zoomed-out view does not open every tile.
+#   data/canopy_loss_<layer>.qml the QGIS style it opens with (not for species,
+#                                which has its own colours, nor crown).
 #   data/canopy_loss_tiles.gpkg  two layers:
 #     tiles        one polygon per tile in lgln_coverage.gpkg, with its
 #                  coverage columns, and for every measured tile the figures
@@ -19,9 +23,9 @@
 #                  DGM1, not processed yet, or what stopped it.
 #     tile_epochs  every finished tile's epoch table, bound together.
 #
-# Reads the tables and the headers of a few tiles, no pixels, so it takes
-# seconds even for the whole state. Skipped when the outputs are newer than the
-# tables and the coverage they come from.
+# Reads the tables, the headers of a few tiles, and for the overviews the
+# tiles' own 8 m overviews: about a minute per mosaic for 5,000 tiles. Skipped
+# when the outputs are newer than the tables and the coverage they come from.
 library(sf)
 library(cli)
 
@@ -37,7 +41,8 @@ out_file      <- "data/canopy_loss_tiles.gpkg"
 # band of the tile rasters -> name of its mosaic
 layers <- c(year = 1, observed = 2, canopy = 3, from = 4, species = 5, crown = 6,
             tree_top = 7)
-vrt_files <- paste0("data/canopy_loss_", names(layers), ".vrt")
+vrt_files <- setNames(paste0("data/canopy_loss_", names(layers), ".vrt"), names(layers))
+outputs   <- c(out_file, vrt_files, paste0(vrt_files, ".ovr"))
 
 # Mean and standard deviation of each band over a sample of tiles, one row per
 # band, from the statistics process_tiles.R stored in each tile's header. Tiles
@@ -83,7 +88,11 @@ sample_stats <- function(ids, n = 50) {
 # `classes` (code, name, colour; codes 0, 1, 2, ...) makes it a classified
 # layer: Byte, so it is a plain paletted raster to any viewer, with a colour
 # table, class names and a raster attribute table.
-write_mosaic <- function(ids, band, file, stats, classes = NULL) {
+#
+# `hide_nodata` writes the mosaic write_overview() reads: NoData passed through
+# as a value, and the band's NoData, which fills the space between the tiles,
+# not declared as such.
+write_mosaic <- function(ids, band, file, stats, classes = NULL, hide_nodata = FALSE) {
   x0 <- as.numeric(substr(ids, 3, 5)) * 1000         # left edge
   y1 <- as.numeric(substr(ids, 6, 9)) * 1000 + 1000  # top edge
   xmin <- min(x0)
@@ -93,10 +102,10 @@ write_mosaic <- function(ids, band, file, stats, classes = NULL) {
     '      <SourceFilename relativeToVRT="1">tiles/%s.tif</SourceFilename>\n',
     '      <SourceBand>%d</SourceBand>\n',
     '      <SourceProperties RasterXSize="1000" RasterYSize="1000" DataType="UInt32" ',
-    'BlockXSize="1000" BlockYSize="1" />\n',
+    'BlockXSize="256" BlockYSize="256" />\n',
     '      <SrcRect xOff="0" yOff="0" xSize="1000" ySize="1000" />\n',
     '      <DstRect xOff="%.0f" yOff="%.0f" xSize="1000" ySize="1000" />\n',
-    '      <NODATA>4294967295</NODATA>\n',
+    if (hide_nodata) '' else '      <NODATA>4294967295</NODATA>\n',
     '    </ComplexSource>'), ids, band, x0 - xmin, ymax - y1)
   band_type <- if (is.null(classes)) "UInt32" else "Byte"
   nodata    <- if (is.null(classes)) "4294967295" else "255"
@@ -129,6 +138,7 @@ write_mosaic <- function(ids, band, file, stats, classes = NULL) {
     sprintf('  <GeoTransform>%.0f, 1, 0, %.0f, 0, -1</GeoTransform>', xmin, ymax),
     sprintf('  <VRTRasterBand dataType="%s" band="1">', band_type),
     sprintf('    <NoDataValue>%s</NoDataValue>', nodata),
+    if (hide_nodata) '    <HideNoDataValue>1</HideNoDataValue>',
     sprintf('    <ColorInterp>%s</ColorInterp>', interp),
     class_xml,
     sprintf(paste0('    <Metadata><MDI key="STATISTICS_MINIMUM">%.10g</MDI>',
@@ -141,11 +151,85 @@ write_mosaic <- function(ids, band, file, stats, classes = NULL) {
     '</VRTDataset>'), file)
 }
 
+# The mosaic's overviews, <file>.ovr: the mosaic at 8 m and coarser in one
+# GeoTIFF, which GDAL takes for every zoom level it covers. A view of the whole
+# state then reads this one file instead of every tile; zoomed in further, the
+# tiles' own overviews serve. Built from those 8 m overviews, like them by the
+# most common value with NoData counted as a value (process_tiles.R). Outside
+# the tiles it is NoData too.
+write_overview <- function(ids, band, file, classes = NULL) {
+  src  <- sub("[.]vrt$", "_overview_source.vrt", file)
+  ovr  <- paste0(file, ".ovr")
+  part <- paste0(ovr, ".part")
+  on.exit(unlink(c(src, part)))
+  # UInt32 even for a classified mosaic: converted only on writing, the tiles
+  # would be read at full resolution (four times as long) for a slightly
+  # different mode
+  write_mosaic(ids, band, src, rep(0, 4), hide_nodata = TRUE)
+  ds <- methods::new(gdalraster::GDALRaster, file, read_only = TRUE)
+  size <- ceiling(ds$dim()[1:2] / 8)
+  ds$close()
+  gdal_utils("translate", src, part, options = c(
+    "-of", "GTiff", "-outsize", size, "-r", "mode",
+    if (!is.null(classes)) c("-ot", "Byte"),  # NoData 4294967295 becomes 255
+    "-co", "TILED=YES", "-co", "COMPRESS=ZSTD", "-co", "ZSTD_LEVEL=15",
+    "-co", "BIGTIFF=IF_SAFER"))  # compressed as the tiles are (process_tiles.R)
+  ds <- methods::new(gdalraster::GDALRaster, part, read_only = FALSE)
+  ds$quiet <- TRUE
+  ds$buildOverviews("MODE", 2^(1:7), 0)  # down to 1 km
+  ds$setNoDataValue(1, if (is.null(classes)) 4294967295 else 255)
+  ds$close()
+  if (file.exists(ovr) && !file.remove(ovr))
+    cli_abort(c("{.file {ovr}} is in use (open in QGIS?).",
+                i = "Close it and run again."))
+  invisible(file.rename(part, ovr))
+}
+
+# A QGIS style, <file> with .qml, which QGIS applies when the mosaic is added:
+# survey years in magma, tree heights in viridis, the 0/1 layers as two
+# classes. NoData stays transparent. The species mosaic carries its colours
+# itself, and the tree IDs have no useful colouring.
+write_style <- function(layer, file, years) {
+  item <- \(value, colour, label) sprintf(
+    '          <item value="%s" color="%s" alpha="255" label="%s"/>', value, colour, label)
+  pseudocolor <- \(type, values, colours, labels) c(
+    sprintf(paste0('    <rasterrenderer type="singlebandpseudocolor" band="1" opacity="1" ',
+                   'alphaBand="-1" nodataColor="" classificationMin="%s" classificationMax="%s">'),
+            min(values), max(values)),
+    '      <rastershader>',
+    sprintf(paste0('        <colorrampshader colorRampType="%s" classificationMode="1" clip="0" ',
+                   'minimumValue="%s" maximumValue="%s" labelPrecision="0">'),
+            type, min(values), max(values)),
+    item(values, colours, labels),
+    '        </colorrampshader>',
+    '      </rastershader>',
+    '    </rasterrenderer>')
+  paletted <- \(colours, labels) c(
+    '    <rasterrenderer type="paletted" band="1" opacity="1" alphaBand="-1" nodataColor="">',
+    '      <colorPalette>',
+    sprintf('        <paletteEntry value="%d" color="%s" alpha="255" label="%s"/>',
+            seq_along(colours) - 1L, colours, labels),
+    '      </colorPalette>',
+    '    </rasterrenderer>')
+  hex <- \(x) substr(x, 1, 7)  # viridisLite adds an alpha
+  renderer <- switch(layer,
+    year = , from = pseudocolor("EXACT", years, hex(viridisLite::magma(length(years), end = 0.9)),
+                                years),
+    tree_top = pseudocolor("INTERPOLATED", c(50, 500), hex(viridisLite::viridis(2)),
+                           c("5 m", "50 m")),
+    observed = paletted(c("#636363", "#E0E0E0"), c("not observed", "observed")),
+    canopy   = paletted(c("#F0F0F0", "#4D9221"), c("no canopy", "canopy")))
+  if (is.null(renderer)) return(invisible())
+  writeLines(c("<!DOCTYPE qgis PUBLIC 'http://mrcc.com/qgis.dtd' 'SYSTEM'>",
+               '<qgis styleCategories="Symbology">', '  <pipe>', renderer, '  </pipe>',
+               '</qgis>'), sub("[.]vrt$", ".qml", file))
+}
+
 inputs <- c(coverage_file, result_file, epoch_file, run_log)
 if (!file.exists(result_file)) {
   cli_alert_warning("No tiles processed yet ({.file {result_file}} is missing): nothing to build")
-} else if (all(file.exists(c(out_file, vrt_files))) &&
-           min(file.mtime(c(out_file, vrt_files))) > max(file.mtime(inputs))) {
+} else if (all(file.exists(outputs)) &&
+           min(file.mtime(outputs)) > max(file.mtime(inputs))) {
   cli_alert_success("Mosaics and tile table are up to date: skipped")
 } else {
   # The text columns as text: one that is empty in every row would otherwise
@@ -172,9 +256,14 @@ if (!file.exists(result_file)) {
       r <- ranges[[l]]
       s <- sampled[l, ]
       if (anyNA(s)) s <- c(mean(r), diff(r) / 4)
-      write_mosaic(measured, layers[[l]], paste0("data/canopy_loss_", l, ".vrt"),
-                   c(r, s), if (l == "species") species_classes)
+      write_mosaic(measured, layers[[l]], vrt_files[[l]], c(r, s),
+                   if (l == "species") species_classes)
+      write_style(l, vrt_files[[l]], sort(unique(epochs$year[epochs$used])))
     }
+    cli_progress_step("Overviews of the {length(layers)} mosaics")
+    for (l in names(layers))
+      write_overview(measured, layers[[l]], vrt_files[[l]],
+                     if (l == "species") species_classes)
   }
 
   # The loss and the lost trees per year, and the trees per species, from

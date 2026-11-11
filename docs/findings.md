@@ -16,6 +16,210 @@ The canopy surface from a later lidar survey serves as a reference. Lidar measur
   - Changes between the last bDOM and the reference survey cannot have been detected, so "found" is a lower bound.
   - The reference lidar flights are mostly in March (leaf-off). In broadleaf stands they can read the canopy lower, which would count some false detections as confirmed.
 
+## 2026-11-11 – Mosaics that open fast in QGIS
+
+**Question:** the mosaic VRTs load slowly in QGIS when zoomed out. Can overviews fix that without merging the tiles into one file?
+
+**Setup:**
+- 4,868 tiles, converted from the old layout (rows of one pixel, all 7 bands per pixel, no overviews) to 256 × 256 blocks, band by band, with overviews at 2, 4 and 8 m.
+- Per mosaic, one overview file `<mosaic>.vrt.ovr` at 8 m with its own overviews down to 1 km. GDAL uses it automatically.
+- Overview values by `nearest`, or by `mode` with NoData counted as a value of its own.
+- Timed: one read 1,500 px wide of the whole extent, of a 50 km window and of a 10 km window, each in a fresh process.
+
+**Results:**
+- **Read time:**
+
+  | view | old | new tiles | new tiles + `.ovr` |
+  |---|---|---|---|
+  | whole extent | 12 s | 6 s | < 0.05 s |
+  | 50 km | 4 s | 2 s | 0.1 s |
+  | 10 km | 0.5 s | 0.3 s | 0.1 s |
+
+  The old zoomed-out time grows with the number of tiles: about 100 s statewide.
+- **Values:** identical in all bands of all tiles. Overview cells hold only values of their tile, and the `.ovr` files equal the tiles' 8 m overviews cell by cell, with NoData outside the tiles.
+- **Cost:**
+  - tiles are 22 % larger, about 7 GB more statewide (before the change of compression below);
+  - writing a tile takes 0.2–0.4 s longer, under 2 % of its time;
+  - an `.ovr` takes about 1 minute per mosaic for 4,868 tiles, mostly for its own overviews.
+- **`mode` against `nearest`:** plain `mode` ignores NoData, so one lost cell would make the whole coarse cell lost. With NoData counted as a value, a coarse cell shows the most common value of its whole area: zoomed out, only large clearings remain. `nearest` shows a scattered sample that changes between zoom levels. In the whole-extent read, 300 against 1,500 loss pixels.
+- **Pitfalls:**
+  - A species mosaic stored as 8-bit made GDAL read the tiles at full resolution (4 times as long, a slightly different mode). It is read as 32-bit and converted only on writing.
+  - Without hidden NoData, the space between the tiles came out as 0.
+- **Compression**, timed on 10 tiles over the whole write (translate, overviews, statistics), median of 3 runs. Read time is all 7 bands:
+
+  | compression | size | write per tile | read per tile |
+  |---|---|---|---|
+  | DEFLATE + `PREDICTOR=2` (before) | 2.86 MB | 0.25 s | 0.052 s |
+  | DEFLATE | 2.20 MB | 0.23 s | 0.045 s |
+  | ZSTD 1 | 2.28 MB | 0.19 s | 0.037 s |
+  | ZSTD 9 | 1.98 MB | 0.23 s | 0.039 s |
+  | ZSTD 15 | 1.78 MB | 0.35 s | 0.038 s |
+
+  The predictor hurts. It stores differences to the cell on the left, and between years, classes, IDs and NoData those jump. One data type for all bands (UInt32, for the tree IDs) costs about 22 % against the smallest type per band, which would need several files per tile.
+
+**Decision:**
+- New tile layout with `mode` overviews (NoData counted), an `.ovr` per mosaic, and a QGIS style (`.qml`) beside each one.
+- Tiles and `.ovr` compressed with ZSTD 15, no predictor: 38 % smaller, and 0.1 s more per tile is under 0.5 % of its run time. The existing tiles were replaced by their converted copies. Results are unchanged, so `method` stays at 4.
+
+## 2026-11-11 – Dating losses with ECHOSAT yearly canopy heights
+
+**Question:** can ECHOSAT date our losses? It is a global 10 m canopy height model per year, 2018–2024, from Sentinel-1/2 trained on GEDI (Pauls et al. 2026, arXiv 2602.21421, CC-BY).
+
+**Setup:**
+- **Source:** `https://echosat.uni-muenster.de/ECHOSAT_T32U.tif`, one file for UTM zone 32U, read with `/vsicurl/`. No account needed.
+  - 7 bands (2018–2024), Int16, height in cm, nodata −9999, LZW.
+  - Internally tiled in 256² blocks, EPSG:32632, 10 m. The cells line up exactly with our 1 km tiles.
+  - Not declared a COG, and no updates announced.
+- **Drop:** the height difference between consecutive years; a drop "in year y" falls between the y−1 and y maps.
+- **Per lost 1 m pixel:** the largest drop in a year of its lidar interval (`loss_from`–`loss_year`, both ends included), and that year.
+- **Seen:** a drop of at least 5 m (or 3 m).
+- **Pixels:** the same 34 tiles and pixels as the EFDA test, so both are compared on the same area. Only intervals inside 2018–2024 count, which is 93 % of the lost area.
+- **10 m patches:** the same as the Sentinel-2 test, each dated by its mean height series.
+
+**Results:**
+- **Cost:**
+  - opening the file takes 0.3 s;
+  - a 1 km tile with all 7 years takes 0.15 s (median, max 0.5 s) and about 1 MB;
+  - all 41,473 tiles would take about 1.8 h on a single thread, against about 70 h for the quarterly Sentinel-2 mosaics.
+- **Seen, by patch size** (EFDA on the same pixels, mask gaps counted as not seen):
+
+  | patch size | lost area | ECHOSAT ≥ 5 m | ECHOSAT ≥ 3 m | EFDA ≥ 50 % |
+  |---|---|---|---|---|
+  | < 100 m² | 12.2 ha | 6 % | 7 % | 8 % |
+  | 100–900 m² | 15.7 ha | 12 % | 15 % | 7 % |
+  | 900–5,000 m² | 6.9 ha | 35 % | 39 % | 30 % |
+  | > 5,000 m² | 69.1 ha | 82 % | 84 % | 71 % |
+
+- **Seen, by interval:** 2018–2022 (Harz) 94 %, 2017–2023 36 %, 2021–2023 5 %.
+- **Outside forest:** ECHOSAT has no mask. Tile 323435819, which EFDA misses entirely, shows a clean 11 m drop in 2021, the same year as Sentinel-2. Roadside trees and hedges appear at 10–15 m.
+- **False alarms:**
+  - 3.2 % of stable 10 m canopy cells drop ≥ 5 m in some year;
+  - none of the lost pixels drop before their interval;
+  - 11 % drop ≥ 5 m *after* their interval ends. This is likely a lag, or smoothing from neighbouring losses.
+- **Years:**
+  - **Against EFDA**, on the pixels both see: ECHOSAT gives the same year for 51 %, one year later for 38 %, and two or more years later for 10 %.
+  - **Against Sentinel-2**, on 10 m patches: the same year for 4 of 5 large patches and within ±1 year for all of them. For single cells it gives the same year for 6 of 31 patches and within ±1 year for 20.
+  - Where they differ, ECHOSAT tends to be later (2022 against 2021 on the largest Harz patch).
+- **Maps:**
+  - **Harz:** the progression shows clearly from 2019 to 2022.
+  - **Shapes:** heights are smooth blobs at about 30–50 m scale, and clearings stay at 5–8 m instead of 0.
+  - **Mixed cells:** a 10 m cell mixes its loss with later neighbouring losses. For example, cells lost 2013–2018 drop again in 2020 with the beetle stands around them.
+
+**Decision:** the best source so far for losses over about 1,000 m² between 2018 and 2024. It is cheap to read, covers trees outside forest, and its years are mostly within one year of Sentinel-2, with a tendency to be one year late. It cannot date small losses, and it is a static product ending in 2024. Not adopted yet: it is a candidate to combine with the Sentinel-2 mosaics, ECHOSAT for 2018–2024 and Sentinel-2 for later years.
+
+Test script and plots: session scratchpad `s2date/echosat_test.R`, `s2date/echosat_plots/`.
+
+## 2026-11-11 – Dating losses with EFDA disturbance probabilities
+
+**Question:** can the European Forest Disturbance Atlas v3.0 date our losses? It gives an annual disturbance probability from Landsat (30 m, 1985–2024; Zenodo record 21722408, local copy in `Y:/Jens/data/disturbance/EFDA/Germany`).
+
+**Setup:**
+- `disturbance_probability_germany_v30.tif`: 40 bands, one per year, 0–100, EPSG:3035. It was projected to each tile's 1 m grid by nearest neighbour.
+- For every lost 1 m pixel:
+  - the highest probability in a year of its lidar interval (`loss_from`–`loss_year`, both ends included) and that year;
+  - the highest probability in the 10 years before the interval, as a false-alarm check;
+  - whether it lies inside `forestlanduse_mask_germany_v30.tif`.
+- "Seen" means a probability of at least 50 % in an interval year.
+- 34 method 4 tiles: the 4 Sentinel-2 test tiles and 30 random tiles with more than 2,000 m² lost. That is 112 ha of loss.
+- Size classes by the 1 m loss patch a pixel belongs to.
+
+**Results:**
+- **Outside EFDA:** 24 % of the lost area lies outside EFDA's mask and has no probability at all. Not only trees outside the forest: 323435819 (a closed stand, 5.2 ha lost, cleared 2020/21 by Sentinel-2) is 99 % outside it, and 323805954 entirely.
+- **Seen (inside the mask), by patch size:**
+
+  | patch size | lost area | seen |
+  |---|---|---|
+  | < 100 m² | 13.5 ha | 16 % |
+  | 100–900 m² | 16.9 ha | 17 % |
+  | 900–5,000 m² | 7.0 ha | 39 % |
+  | > 5,000 m² | 74.3 ha | 75 % |
+
+- **Seen, by interval:**
+  - 2018–2022 (Harz): 84 %;
+  - 2017–2023: 41 %;
+  - 2013–2018: 15 %;
+  - intervals ending 2021–2025: 0–20 %. EFDA ends in 2024.
+- **Before the interval:** 6 % of the small patches' area reaches ≥ 50 % in the 10 years before. For patches over 5,000 m² it is 0.6 %.
+- **Years, Harz 2018–2022:**
+
+  | EFDA year | lost area |
+  |---|---|
+  | 2019 | 4.7 ha |
+  | 2020 | 17.4 ha |
+  | 2021 | 13.7 ha |
+  | 2022 | 5.1 ha |
+
+  Sentinel-2 put 40.5 ha of the large patches into 2021. On the largest patch (4,680 cells of 10 m) EFDA peaks in 2020 and Sentinel-2 drops in 2021. EFDA's annual Landsat composites and the quarterly mosaics can differ by a year around winter fellings.
+- **Harz 2013–2018:** EFDA dates 1.3 ha to 2018 (≥ 50 %), consistent with storm Friederike (January 2018), which Sentinel-2 showed as a Q1 2018 dip.
+
+**Decision:** not adopted for dating. It misses a quarter of our loss through its mask, most of the small losses through its 30 m cells, and everything after 2024. It is a static download, not a service. It remains useful where Sentinel-2 cannot help: large losses before 2017.
+
+Test script: session scratchpad `s2date/efda_test.R`.
+
+## 2026-11-11 – Dating losses with Sentinel-2 quarterly mosaics (first test)
+
+**Question:** lidar dates a loss only to the interval between two surveys, often 4–6 years. Can a Sentinel-2 time series narrow that to a year? Which source can be streamed, is kept up to date, and is already composited?
+
+**Sources looked at:**
+
+| source | outcome |
+|---|---|
+| CDSE Sentinel-2 Global Mosaics, quarterly, 10 m | **used.** B02/B03/B04/B08 and `observations` as COGs on CDSE's S3, 2017 Q1 – now (the STAC header says 2020; Europe goes back to 2017). Free account and S3 keys |
+| Planetary Computer: Sentinel-2 L2A, Landsat, HLS | anonymous and complete, but single scenes (60–150 a year): we would composite ourselves. Its server-side mosaic ignored `pixel_selection` |
+| Earth Search (AWS) Sentinel-2 | anonymous; the C1 collection has gaps (0 scenes in 2017 and 1 in 2022 at a Harz tile); data in us-west-2 |
+| LGLN geoLabs Sentinel-2 | true colour and a *colourised* NDVI (8-bit RGB) only, 7–18 dates a year; prototype |
+| HR-VPP, EcoDataCube, DLR FCCL, EFDA | account (WEkEO), ends 2022, or forest-only disturbance products |
+
+**Setup:**
+- Reading: B04, B08 and `observations` read with gdalraster over `/vsis3/` (keys `CDSE_S3_KEY` and `CDSE_S3_SECRET` in the user's `.Renviron`).
+  - Only the 1 km tile window is read, and only the quarters from the year before each interval to its end.
+  - The STAC items of 2017–2018 carry no `proj:transform`, so their grid is read from the file header.
+  - Our tiles are all in UTM zone 32; MGRS items in zone 31 are skipped.
+- Loss patches: 10 m cells at least half lost (at 1 m), per interval (`loss_from`–`loss_year`), 8-connected.
+- Reference: "stable canopy" in the same tile, meaning cells that were ≥ 90 % canopy at the start, never lost and fully observed.
+- Rough dating rule: the largest drop of patch NDVI minus stable-canopy NDVI between consecutive Q2/Q3 values.
+- 4 method 4 tiles:
+
+  | tile | surveys | case |
+  |---|---|---|
+  | 326025740 | 2013 / 2018 / 2022 | Harz, 49 ha lost |
+  | 323435819 | 2017 / 2023 | 5.2 ha |
+  | 323425824 | 2017 / 2023 | 0.3 ha in small patches |
+  | 323805954 | 2016 / 2020 / 2022 | 2 × 1.4 ha |
+
+**Results:**
+- **Cost:**
+
+  | | per tile and quarter, 3 bands |
+  |---|---|
+  | time | 0.4–0.45 s |
+  | data | 1.1–3.0 MB |
+  | opening a file | 0.05 s |
+
+  - The COGs use 256² blocks (2.56 km), so a tile window touches 1–4 blocks per band. Cutting to patch windows saved nothing on these tiles, since the patches touch the same blocks.
+  - Statewide, about 24,000 tiles have loss after 2016, at about 24 quarters each:
+    - all four quarters: about 70 h of single-thread reading and 1.4 TB;
+    - Q2/Q3 only: about half;
+    - shared blocks: reading neighbouring tiles together (about 6 tiles per block) would cut the volume further.
+  - CDSE's S3 limits are not checked yet.
+- **Share of the loss in 10 m cells at least half lost:** 87–91 % of large losses; 47–52 % of small or scattered ones (323425824; the Harz 2013–2018 interval).
+- **Signal:**
+  - **Large patches (> 25 cells):** sharp and lasting. On 323435819 the 4.4 ha clearing drops between Q3 2020 and Q2 2021, a winter felling. On the Harz tile 40.5 of 43.3 ha date to 2021 and 3.2 ha to 2020, which fits the spruce dieback peak there.
+  - **Small patches (1–4 cells):** mostly no signal; the series follows the stable canopy. The "largest drop" rule then picks noise. All patches of intervals starting 2016 or later fell "inside" their interval, but that says little: those intervals span almost the whole series.
+  - **Harz 2013–2018 patches:** they all dip in Q1 2018, which fits storm Friederike (January 2018). The Q2/Q3-only rule missed it; winter quarters do carry information.
+  - **Valid NDVI:** present on every patch in every Q2 and Q3, 2017–2023 (`observations` > 0).
+  - **Reference:**
+    - unusable on 323805954: only 7 stable cells, NDVI about 0.1;
+    - on the Harz tile the "stable" stands themselves decline from 2022 (Q3 NDVI 0.82 → 0.54).
+
+**Decision:** the source works: streamed, cheap per tile, 2017 to now, updated quarterly. Not adopted yet. Dating needs a real check and a better rule:
+- validate on tiles with surveys in consecutive years, e.g. 2023/2024/2025, by holding out a middle survey;
+- add a persistence or magnitude test so small patches are left undated rather than given a noise date;
+- consider all four quarters;
+- use a reference from a wider area, or none.
+
+Test script: session scratchpad `s2date/s2_dating_test.R`.
+
 ## 2026-11-10 – The no-tree rules for the starting canopy
 
 **Question:** the rules of 2026-11-09 (reference over 65 m above DGM1; lidar flat on a lake) remove such cells from the loss, but the starting canopy is still the first surface 5 m or more above DGM1. Does it still count turbines and lakes under old lidar surfaces as canopy, how much, and does applying the same rules there change anything else?
@@ -714,4 +918,10 @@ Same 25 tiles, with the original method (levelled, cubic bDOM).
   - a window for trees outside the forest;
   - a check against more point-cloud tiles.
 - **Grew up, then cut:** solved where lidar saw the growth (2026-11-05). Still missed where only bDOM saw it.
+- **Dating losses with Sentinel-2** (2026-11-11): the CDSE quarterly mosaics work as a source. ECHOSAT yearly heights (2018–2024) are a cheap complement for larger losses. EFDA was tested and not adopted. Still to do:
+  - validate on tiles with yearly surveys (hold out a middle one), for both Sentinel-2 and ECHOSAT; this also settles whether ECHOSAT's one-year lag is real;
+  - a dating rule with a persistence or magnitude test, so small patches stay undated;
+  - all four quarters;
+  - a better reference;
+  - check CDSE's S3 limits for the statewide volume.
 - **Plots repo:** its outputs also need the lidar reset. Its two `loss_year()` calls no longer run since 2026-11-09: the function now takes `p`, `above_ground` and `lake`.

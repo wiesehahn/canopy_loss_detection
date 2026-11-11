@@ -16,7 +16,7 @@ A **survey** (or epoch) is one year of LGLN surface data for a tile: lidar (DOM1
 
 ## Loss rasters: `tiles/<tile_id>.tif`
 
-One GeoTIFF per measured tile: 1000 × 1000 cells of 1 m, unsigned 32-bit integers (for the tree IDs), NoData value 4294967295 (shown as empty in GIS software). Band statistics are stored in the file.
+One GeoTIFF per measured tile: 1000 × 1000 cells of 1 m, unsigned 32-bit integers (for the tree IDs), NoData value 4294967295 (shown as empty in GIS software). Band statistics are stored in the file. The tiles are stored in 256 × 256 blocks, band by band, compressed with ZSTD, with overviews at 2, 4 and 8 m. An overview cell holds the most common value of the cells it covers, with empty counted as a value of its own, so it shows a loss only where loss covers most of it.
 
 | band | name | values | meaning |
 |---|---|---|---|
@@ -65,6 +65,10 @@ The colours start from the forestry colours of the main species (oak `#fecc00`, 
 ## Mosaics: `canopy_loss_<band>.vrt`
 
 `canopy_loss_year.vrt`, `canopy_loss_from.vrt`, `canopy_loss_observed.vrt`, `canopy_loss_canopy.vrt`, `canopy_loss_species.vrt`, `canopy_loss_crown.vrt` and `canopy_loss_tree_top.vrt` join one band of all tile rasters into a single statewide layer. The values are as above. They are small text files that point to the tiles, so they need `tiles/` next to them. The statistics inside them are for display only: a fixed value range and a mean and standard deviation estimated from 50 tiles. For exact values use the tiles or the tile table.
+
+Beside each mosaic:
+- **`canopy_loss_<band>.vrt.ovr`**: the mosaic at 8 m and coarser, built from the tiles' overviews in the same way. A GIS uses it automatically when zoomed out, so a view of the whole state opens one file instead of every tile. It is rebuilt with the mosaic.
+- **`canopy_loss_<band>.qml`**: the style QGIS opens the mosaic with. Years are in magma (one colour per survey year), tree heights in viridis, and `observed` and `canopy` as two classes. Empty cells are transparent. `species` brings its own colours, and `crown` has no style.
 
 `canopy_loss_species.vrt` is the layer to use for species in a GIS: it opens with the species' names and colours, and has a raster attribute table (`Value`, `Name`, `Red`, `Green`, `Blue`). Its cells are 8-bit, with `255` as NoData. The tile rasters cannot store these, so their band 5 shows bare codes. In R, `label_species()` in `R/trees.R` adds names and colours to a tile's species band.
 

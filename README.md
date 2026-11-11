@@ -44,7 +44,7 @@ The thresholds were chosen and checked against later lidar surveys that the dete
 
 A loss can only be dated to the time between two surveys: after the last flight that still saw the canopy, and by the first flight that shows it gone. A cell with an earliest year of 2018 and a loss year of 2022 lost its canopy at some point between those two flights.
 
-The maps are mosaics over all tiles (`data/canopy_loss_year.vrt`, `data/canopy_loss_from.vrt`, `data/canopy_loss_observed.vrt`, `data/canopy_loss_canopy.vrt`, and for the lost trees `data/canopy_loss_species.vrt`, `data/canopy_loss_crown.vrt`, `data/canopy_loss_tree_top.vrt`). `trees_from_tiles()` in `R/trees.R` turns the lost trees of any set of tiles into a table. The tile table is `data/canopy_loss_tiles.gpkg`. [`docs/data.md`](docs/data.md) describes every file, band, column and value.
+The maps are mosaics over all tiles (`data/canopy_loss_year.vrt`, `data/canopy_loss_from.vrt`, `data/canopy_loss_observed.vrt`, `data/canopy_loss_canopy.vrt`, and for the lost trees `data/canopy_loss_species.vrt`, `data/canopy_loss_crown.vrt`, `data/canopy_loss_tree_top.vrt`). They open in QGIS with their own colours, and stay fast when zoomed out to the whole state. `trees_from_tiles()` in `R/trees.R` turns the lost trees of any set of tiles into a table. The tile table is `data/canopy_loss_tiles.gpkg`. [`docs/data.md`](docs/data.md) describes every file, band, column and value.
 
 ## Data availability
 
