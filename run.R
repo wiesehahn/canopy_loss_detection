@@ -30,6 +30,7 @@
 #   options(cld.bbox = c(xmin, ymin, xmax, ymax))  only tiles in this box (EPSG:25832)
 #   options(cld.tile_ids = c("326005741"))         only these tiles
 #   options(cld.workers = 4)                       parallel workers, default half the cores, at most 16
+source("install.R")                           # missing packages only
 library(cli)
 
 source("R/params.R")

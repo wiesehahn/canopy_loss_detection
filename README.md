@@ -77,10 +77,10 @@ The functions in `R/` are also used by [lidar-biodiversity-plots](../lidar-biodi
 
 ## Running it
 
-**Requirements:** R ≥ 4.5 and these packages:
+**Requirements:** R ≥ 4.5 and these packages, which [`install.R`](install.R) installs if they are missing (`run.R` calls it):
 
 ```r
-install.packages(c("terra", "sf", "lidR", "gdalraster", "viridisLite", "cli", "remotes"))
+install.packages(c("terra", "sf", "lidR", "gdalraster", "viridisLite", "cli", "curl", "remotes"))
 remotes::install_github("wiesehahn/rvtr@55a3b00")
 ```
 
