@@ -182,7 +182,7 @@ Written by step 1, before any tile is processed.
 | `images/canopy_loss_<tile_id>.webp` | Images from `scripts/image_tile.R` |
 | `dgm1/<tile_id>.tif`, `dgm1/index.csv` | Optional local copy of DGM1 from `scripts/get_dgm1.R` (about 190 GB). The flight per tile is the one rvtr streams (newest file year, then newest date), and the index holds its date, year and URL. When present, the run reads it instead of streaming DGM1. The results are the same, as long as the copy is current, so rerun the script when LGLN publishes new DGM1 flights. Set `options(cld.dgm_dir = "")` to stream anyway. |
 
-The maps of data availability are in the repository, not in `data/`: `docs/images/coverage_epochs.png` (usable surveys per tile), `coverage_lidar.png` (lidar surveys per tile) and `coverage_latest.png` (year of the latest usable survey). They are redrawn with the coverage.
+The maps of data availability are in the repository, not in `data/`: `docs/images/coverage_epochs.png` (usable surveys per tile), `coverage_lidar.png` (lidar surveys per tile) and `coverage_latest.png` (year of the latest usable survey). They are redrawn with the coverage. Beside them, `status_tiles.png` (processing state per tile, in `docs/status.md`) and `results_loss.png` (canopy lost per tile in ha, in `docs/results.md`), redrawn with the reports at the end of every run.
 
 Two short reports are also in the repository. `scripts/write_reports.R` writes them at the end of every run, from `lgln_coverage.gpkg`, `tile_results.csv`, `epochs.csv`, `runs.csv` and `params/`, and rewrites them only when their content changes.
 

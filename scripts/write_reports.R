@@ -3,15 +3,18 @@
 #
 #   docs/status.md   how far processing is: tiles done, to redo and to do, the
 #                    survey years tiles can show a loss in, and how the runs go.
+#                    With a map of it, docs/images/status_tiles.png.
 #   docs/results.md  what has been detected so far, over the tiles done with
 #                    the current settings only, so every figure comes from one
 #                    method: areas, loss and lost trees per year, lost trees
-#                    per species.
+#                    per species. With a map of the canopy lost per tile,
+#                    docs/images/results_loss.png.
 #
 # run.R writes both at the end of every run. Source this by hand to look at a
-# run that is still going: it only reads the tables. A page is rewritten only
-# when its content changes, so both can be kept in git.
+# run that is still going: it only reads the tables. A page or map is
+# rewritten only when its content changes, so all can be kept in git.
 library(sf)
+library(terra)
 library(cli)
 
 source("R/params.R")
@@ -78,6 +81,74 @@ write_page <- function(lines, file, note) {
     close(con)
     cli_alert_success(paste0("{.file {file}} written: ", note))
   }
+}
+
+# Maps of one value per tile on the 1 km grid, drawn like the coverage maps
+# (scripts/map_coverage.R). `tile_id` gives the lower-left corner in km
+# (R/tiles.R), `value` one value per tile, NA where the tile is not drawn.
+tile_raster <- function(tile_id, value) {
+  x <- as.numeric(substr(tile_id, 3, 5)) * 1000
+  y <- as.numeric(substr(tile_id, 6, 9)) * 1000
+  r <- rast(xmin = min(x), xmax = max(x) + 1000, ymin = min(y), ymax = max(y) + 1000,
+            resolution = 1000, crs = "EPSG:25832", vals = NA)
+  r[cellFromXY(r, cbind(x + 500, y + 500))] <- value
+  r
+}
+map_args <- list(axes = FALSE, box = FALSE, mar = c(0.5, 0.5, 2.5, 0.5))
+
+# `classes` the value, label and colour of every class, all of them in the
+# legend, which goes bottom left: empty there, outside the state.
+class_map <- function(tile_id, class, classes, title, file) {
+  r <- tile_raster(tile_id, class)
+  levels(r) <- data.frame(value = classes$value, label = classes$label)
+  coltab(r) <- data.frame(value = classes$value, col = classes$col)
+  write_png(file, {
+    do.call(plot, c(list(r, all_levels = TRUE,
+                         plg = list(title = "", cex = 0.9, x = "bottomleft")), map_args))
+    title(title, cex.main = 1.1)
+  })
+}
+
+# A value on a linear scale from 0 to `max`, higher values in the colour of
+# `max`; tiles of `tile_id` without a value in grey, labelled `na_label`.
+value_map <- function(tile_id, value, max, unit, cols, na_label, title, file) {
+  r <- tile_raster(tile_id, pmin(value, max))
+  write_png(file, {
+    do.call(plot, c(list(tile_raster(tile_id, 0), col = "#CCCCCC", legend = FALSE), map_args))
+    plot(r, col = cols, range = c(0, max), add = TRUE, legend = FALSE)
+    title(title, cex.main = 1.1)
+    # The legend by hand, bottom left like the classes': a colour bar, and
+    # above it the grey of the tiles without a value.
+    u <- par("usr"); w <- diff(u[1:2]); h <- diff(u[3:4])
+    clip(u[1], u[2], u[3], u[4])  # terra clips to the raster
+    x0 <- u[1] + 0.03 * w; x1 <- x0 + 0.025 * w
+    y0 <- u[3] + 0.04 * h; y1 <- y0 + 0.2 * h
+    rasterImage(as.raster(matrix(rev(cols), ncol = 1)), x0, y0, x1, y1, interpolate = FALSE)
+    rect(x0, y0, x1, y1, border = "grey40")
+    at <- pretty(c(0, max))
+    segments(x1, y0 + at / max * (y1 - y0), x1 + 0.006 * w, col = "grey40")
+    text(x1 + 0.01 * w, y0 + at / max * (y1 - y0), adj = 0, cex = 0.8,
+         paste(c(head(at, -1), paste("≥", max)), unit))
+    rect(x0, y1 + 0.03 * h, x1, y1 + 0.055 * h, col = "#CCCCCC", border = "grey40")
+    text(x1 + 0.01 * w, y1 + 0.0425 * h, na_label, adj = 0, cex = 0.8)
+  })
+}
+
+# Draws `plot` into a PNG and writes it to `file`, like the pages only when
+# the image has changed.
+write_png <- function(file, plot) {
+  tmp <- tempfile(fileext = ".png")
+  png(tmp, width = 1100, height = 1000, res = 130)
+  plot
+  dev.off()
+  new <- readBin(tmp, "raw", file.size(tmp))
+  if (file.exists(file) && identical(new, readBin(file, "raw", file.size(file)))) {
+    cli_alert_success("{.file {file}} is up to date")
+  } else {
+    writeBin(new, file)
+    cli_alert_success("{.file {file}} written")
+  }
+  unlink(tmp)
 }
 
 if (!file.exists(coverage_file)) {
@@ -154,6 +225,17 @@ if (!file.exists(coverage_file)) {
   errors <- head(sort(table(substr(errors, 1, 160)), decreasing = TRUE), 5)
   flights <- unlist(strsplit(cov$epoch_dates[!is.na(cov$epoch_dates)], ","))
 
+  # The same states on the map, every LGLN tile.
+  status_class <- rep(6, nrow(cov))
+  status_class[match(comp$tile_id, cov$tile_id)] <-
+    ifelse(failed, 5, match(state, c("done", "new_params", "new_data", "new")))
+  class_map(cov$tile_id, status_class, data.frame(
+    value = 1:6,
+    label = c("done", "to redo: older method", "to redo: new flights",
+              "not processed yet", "failed", "cannot be processed"),
+    col = c("#1B7837", "#F1A340", "#998EC3", "#BDBDBD", "#D7191C", "#EEEEEE")),
+    "Processing state per 1 × 1 km tile", "docs/images/status_tiles.png")
+
   status <- c(
     "# Processing status",
     "",
@@ -168,6 +250,8 @@ if (!file.exists(coverage_file)) {
            "The others have fewer than two usable surveys (",
            fmt(sum(!cov$comparable & cov$dgm1)), ") or no terrain model (",
            fmt(sum(!cov$dgm1)), ")."),
+    "",
+    "![Processing state per tile](images/status_tiles.png)",
     "",
     "## Survey years",
     "",
@@ -185,6 +269,15 @@ if (!file.exists(coverage_file)) {
   # --- results ------------------------------------------------------------------
   cur <- results[results$tile_id %in% done & results$status == "measured", ]
   num <- \(x) sum(as.numeric(x), na.rm = TRUE)
+
+  # The area lost per tile measured with the current method, linear up to 10 ha
+  # (in the west, 99 % of tiles are below; the Harz will have more), so little
+  # loss shows only faintly.
+  value_map(cov$tile_id, as.numeric(cur$loss_m2)[match(cov$tile_id, cur$tile_id)] / 1e4,
+            max = 10, unit = "ha", na_label = "not measured",
+            cols = colorRampPalette(c("#FFF9F2", viridisLite::magma(5, begin = 0.25,
+                                                                    end = 0.9, direction = -1)))(100),
+            title = "Canopy lost per 1 × 1 km tile", file = "docs/images/results_loss.png")
   results_page <- c(
     "# Canopy loss: results",
     "",
@@ -208,8 +301,12 @@ if (!file.exists(coverage_file)) {
     by_year <- data.frame(year = ly, `lost area (ha)` = fmt(get0(loss_year, ly) / 1e4),
                           `lost trees` = fmt(get0(trees_year, ly)), check.names = FALSE)
 
-    sp <- sort(parse_counts(cur$trees_by_species), decreasing = TRUE)
-    if (length(sp) > 7) sp <- c(sp[1:6], other = sum(sp[-(1:6)]))
+    # Every species of the map, those with no lost tree yet included.
+    sp <- parse_counts(cur$trees_by_species)
+    names_all <- union(species_classes$name, names(sp))
+    sp <- sort(setNames(ifelse(is.na(sp[names_all]), 0, sp[names_all]), names_all),
+               decreasing = TRUE)
+    names(sp)[names(sp) == "none"] <- "NA"  # outside the species map
     by_species <- data.frame(species = names(sp), trees = fmt(sp),
                              share = vapply(sp, pct, "", sum(sp)))
 
@@ -217,6 +314,8 @@ if (!file.exists(coverage_file)) {
       if (n_done < n_comp)
         c("> Partial result: only the tiles processed so far, not a statewide figure.", ""),
       md_table(totals),
+      "",
+      "![Canopy lost per tile](images/results_loss.png)",
       "",
       "## By year",
       "",

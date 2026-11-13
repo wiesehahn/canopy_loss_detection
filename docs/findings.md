@@ -16,6 +16,20 @@ The canopy surface from a later lidar survey serves as a reference. Lidar measur
   - Changes between the last bDOM and the reference survey cannot have been detected, so "found" is a lower bound.
   - The reference lidar flights are mostly in March (leaf-off). In broadleaf stands they can read the canopy lower, which would count some false detections as confirmed.
 
+## 2026-11-13 – Tiles on the borders of old DOM1 blocks miss surveys
+
+**Question:** the status map shows lines and rings of tiles that cannot be processed, for example around Braunschweig, though their neighbours on both sides can. Why?
+
+**Setup:** tile 597/5790, between the 2013 and 2015 DOM1 blocks. Compared its index entries with its neighbours, and listed LGLN's DOM1 bucket.
+
+**Results:**
+- The neighbours have DOM1 2013 + 2019 (west) or 2015 + 2019 (east). The border tile has only 2019, so one epoch.
+- The old DOM1 was processed in blocks (`L1355` = 2013, `L1506` = 2015, …). A tile crossed by a block border is stored as one *edge tile* per block, under `L<block>/Randkacheln/`, beside the full tiles under `Vollkacheln/`. For 597/5790, both `L1355/Randkacheln/dom1_32_597_5790_1_ni_2013.tif` (3.7 MB) and `L1506/Randkacheln/dom1_32_597_5790_1_ni_2015.tif` (2.6 MB) exist.
+- The tile index lists only `Vollkacheln`, so neither get_lgln_coverage.R nor rvtr knows the edge tiles. Border tiles drop out (one epoch left) or lose a survey (607/5785: 2013 and 2019, but not 2015).
+- The two parts of a border tile usually come from different years, so they are two partial epochs, not one tile to merge.
+
+**Decision:** left as it is for now. A fix would list the `Randkacheln` per block from the bucket (S3 listing works), add them as flights, and have rvtr read them. Whether a half tile then counts as an epoch depends on `min_cover`. Not counted yet: how many tiles this affects.
+
 ## 2026-11-12 – Why the run stopped after a few hours
 
 **Question:** the run on this PC (6 workers, 32 GB RAM) stopped three times after one to five hours: no more tiles, RStudio not responding. Why?
@@ -947,4 +961,5 @@ Same 25 tiles, with the original method (levelled, cubic bDOM).
   - all four quarters;
   - a better reference;
   - check CDSE's S3 limits for the statewide volume.
+- **DOM1 edge tiles** (2026-11-13): tiles on old block borders miss surveys stored as `Randkacheln`, which the index leaves out. Count the tiles affected; check the bDOM bucket for the same; then decide whether to add them.
 - **Plots repo:** its outputs also need the lidar reset. Its two `loss_year()` calls no longer run since 2026-11-09: the function now takes `p`, `above_ground` and `lake`.
