@@ -16,7 +16,30 @@ The canopy surface from a later lidar survey serves as a reference. Lidar measur
   - Changes between the last bDOM and the reference survey cannot have been detected, so "found" is a lower bound.
   - The reference lidar flights are mostly in March (leaf-off). In broadleaf stands they can read the canopy lower, which would count some false detections as confirmed.
 
-## 2026-11-11 – Mosaics that open fast in QGIS
+## 2026-11-12 – Why the run stopped after a few hours
+
+**Question:** the run on this PC (6 workers, 32 GB RAM) stopped three times after one to five hours: no more tiles, RStudio not responding. Why?
+
+**Setup:**
+- Windows event log at each stop.
+- One R process running 13 tiles in a row as a worker does (`run_one()`), its memory read after each tile: committed (private) memory, resident memory, and R's own heap from `gc()`. Once as the run does it, and once with `GDAL_CACHEMAX = 256` MB.
+- Memory after loading each package.
+
+**Results:**
+- **Every stop** came with Windows' "virtual memory too low" warning, logged within seconds of the last finished tile. The page file had grown to 91 GB (60 GB at peak). Single workers held 9–19 GB. At the last stop a worker crashed (Rscript, ucrtbase.dll, 0xc0000409). The pace was steady until each stop, about 600 tiles an hour.
+- **Loading** `sf`, `terra` and `rvtr` commits 1.6 GB each, 4.8 GB per process, while only 0.2 GB is in use. Each brings its own GDAL.
+- **Per tile:**
+
+  | | after loading | after tile 1 | after tile 8 | after tile 12 |
+  |---|---|---|---|---|
+  | committed, GB | 4.8 | 6.3 | 8.1 | 8.9 |
+  | resident, GB | 0.2 | 1.7 | 3.5 | 4.3 |
+  | R heap, GB | 0.1 | 0.2 | 0.2 | 0.2 |
+
+  About 200 MB more per tile, outside R's heap (terra or GDAL), with no sign of levelling off. With a 256 MB GDAL cache, the same growth: 7.7 GB committed after 8 tiles.
+- At about 100 tiles per worker per hour, six workers fill 32 GB of RAM and the page file within hours. The crashed or swapping workers then leave the main session waiting.
+
+**Decision:** each worker is replaced by a fresh one after 20 tiles (`tiles_per_worker` in `process_tiles.R`). A worker then stays below about 6 GB resident and 10 GB committed. A restart takes a few seconds against about ten minutes of work. Tested with stand-in tiles: every tile comes back, the replaced workers are gone. The source of the leak was not looked for.
 
 **Question:** the mosaic VRTs load slowly in QGIS when zoomed out. Can overviews fix that without merging the tiles into one file?
 

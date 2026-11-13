@@ -351,11 +351,12 @@ record <- function(out) {
 }
 
 # The workers, each with the packages, the functions in R/ and this script's
-# settings. Their process IDs are kept, so stop_workers() can end them even
-# when one no longer answers.
-start_workers <- function() {
-  cl <- makeCluster(n_workers)
-  worker_pids <<- unlist(clusterCall(cl, Sys.getpid))
+# settings. Each keeps its process ID, so stop_workers() can end it even when
+# it no longer answers.
+start_workers <- function(n = n_workers) {
+  cl <- makeCluster(n)
+  pid <- unlist(clusterCall(cl, Sys.getpid))
+  for (w in seq_along(cl)) cl[[w]]$pid <- pid[w]
   clusterCall(cl, setwd, getwd())
   clusterEvalQ(cl, {
     library(terra)
@@ -369,11 +370,19 @@ start_workers <- function() {
                 envir = globalenv())
   cl
 }
-stop_workers <- function() {
-  try(stopCluster(cl), silent = TRUE)
-  tools::pskill(worker_pids)
-  for (node in cl) try(close(node$con), silent = TRUE)
+stop_workers <- function(x = cl) {
+  try(stopCluster(x), silent = TRUE)
+  tools::pskill(vapply(x, \(node) node$pid, numeric(1)))
+  for (node in x) try(close(node$con), silent = TRUE)
 }
+
+# A worker's memory grows with every tile, by about 200 MB, outside R's own
+# heap (terra or GDAL), and does not come back. Over a few hundred tiles six
+# workers filled 32 GB of RAM and a 90 GB page file, a worker crashed and the
+# run hung (docs/findings.md, 2026-11-12). So each worker is replaced by a
+# fresh one after this many tiles - a few seconds against some ten minutes of
+# work.
+tiles_per_worker <- 20
 
 # Tiles handed to the workers one by one, each to the next that is free.
 send <- get("sendCall", asNamespace("parallel"))
@@ -386,8 +395,15 @@ dispatch <- function(ids, done, on_send) {
     on_send(ids[sent])
     send(cl[[w]], run_one, list(ids[sent]), tag = sent)
   }
+  n_done <- integer(length(cl))
   for (k in seq_along(ids)) {
     r <- recv(cl)
+    n_done[r$node] <- n_done[r$node] + 1
+    if (n_done[r$node] >= tiles_per_worker && sent < length(ids)) {
+      stop_workers(cl[r$node])
+      cl[[r$node]] <<- start_workers(1)[[1]]
+      n_done[r$node] <- 0
+    }
     if (sent < length(ids)) {
       sent <- sent + 1
       on_send(ids[sent])
