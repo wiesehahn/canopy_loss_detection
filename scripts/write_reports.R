@@ -9,6 +9,8 @@
 #                    method: areas, loss and lost trees per year, lost trees
 #                    per species. With a map of the canopy lost per tile,
 #                    docs/images/results_loss.png.
+#   docs/map/data/   the tables of the web map, docs/map/index.html (see
+#                    write_map_data() below).
 #
 # run.R writes both at the end of every run. Source this by hand to look at a
 # run that is still going: it only reads the tables. A page or map is
@@ -28,6 +30,7 @@ run_log       <- "data/runs.csv"
 params_dir    <- "data/params"
 status_file   <- "docs/status.md"
 results_file  <- "docs/results.md"
+map_dir       <- "docs/map/data"
 
 # A table as process_tiles.R writes it, `text` columns read as text (one empty
 # in every row would otherwise read as NA). Missing, it is empty, with `cols`.
@@ -149,6 +152,63 @@ write_png <- function(file, plot) {
     cli_alert_success("{.file {file}} written")
   }
   unlink(tmp)
+}
+
+# The tables the web map (docs/map/index.html) reads, for the tiles measured
+# with the current method. No geometry: the map draws each tile from its ID.
+#
+#   loss.csv     tile_id, loss_m2. What the map is coloured by, so it loads first.
+#   details.csv  what a click on a tile shows: the surveys used ("2013 2018
+#                2022"), the areas in m², the share observed, the lost trees,
+#                the area lost per year and the lost trees per species in the
+#                form of tile_results.csv ("2018:23775;2022:104763").
+#   other.csv    the tiles of LGLN's grid not measured: why ("s" fewer than
+#                two usable surveys, "t" no terrain model, "p" not processed
+#                yet) and the usable survey years they have.
+#   species.csv  name and colour of every species (species_classes), so the
+#                map colours them as the species mosaic does.
+#
+# Sorted by tile and written only when their content changes, so a run that
+# changes a few tiles changes only those lines in git.
+write_map_data <- function(cur, epochs, cov, dir) {
+  dir.create(dir, showWarnings = FALSE, recursive = TRUE)
+  cur  <- cur[order(cur$tile_id), ]
+  int  <- \(x) { x <- round(as.numeric(x)); ifelse(is.na(x), "", format(x, scientific = FALSE, trim = TRUE)) }
+  txt  <- \(x) ifelse(is.na(x), "", x)
+  used <- epochs[as.logical(epochs$used) %in% TRUE, c("tile_id", "year")]
+  used <- used[!duplicated(used), ]
+  years <- tapply(as.integer(used$year), used$tile_id, \(y) paste(sort(y), collapse = " "))
+  csv <- \(df) c(paste(names(df), collapse = ","), do.call(paste, c(unname(as.list(df)), sep = ",")))
+  other <- cov[!cov$tile_id %in% cur$tile_id, ]
+  other <- other[order(other$tile_id), ]
+  n_srv <- lengths(strsplit(txt(other$epoch_years), ","))
+  tables <- list(
+    species.csv = species_classes[c("name", "colour")],
+    other.csv = data.frame(
+      tile_id = other$tile_id,
+      why     = ifelse(n_srv < 2, "s", ifelse(!other$dgm1, "t", "p")),
+      years   = gsub(",", " ", txt(other$epoch_years))),
+    loss.csv = data.frame(tile_id = cur$tile_id, loss_m2 = int(cur$loss_m2)),
+    details.csv = data.frame(
+      tile_id        = cur$tile_id,
+      years          = txt(as.vector(years[cur$tile_id])),
+      forest_m2      = int(cur$forest_m2),
+      loss_forest_m2 = int(cur$loss_forest_m2),
+      observed_pct   = txt(cur$observed_pct),
+      lost_trees     = int(cur$lost_trees),
+      loss_by_year   = txt(cur$loss_by_year),
+      trees_by_species = txt(cur$trees_by_species)))
+  for (f in names(tables)) {
+    file  <- file.path(dir, f)
+    lines <- csv(tables[[f]])
+    new   <- charToRaw(paste0(paste(lines, collapse = "\n"), "\n"))  # LF on every OS
+    if (file.exists(file) && identical(new, readBin(file, "raw", file.size(file)))) {
+      cli_alert_success("{.file {file}} is up to date")
+    } else {
+      writeBin(new, file)
+      cli_alert_success("{.file {file}} written: {fmt(nrow(tables[[f]]))} rows")
+    }
+  }
 }
 
 if (!file.exists(coverage_file)) {
@@ -317,6 +377,8 @@ if (!file.exists(coverage_file)) {
       "",
       "![Canopy lost per tile](images/results_loss.png)",
       "",
+      "Every tile's figures: [interactive map](https://wiesehahn.github.io/canopy_loss_detection/map/).",
+      "",
       "## By year",
       "",
       "Year of the first survey that shows the loss.",
@@ -326,4 +388,7 @@ if (!file.exists(coverage_file)) {
       "")
   }
   write_page(results_page, results_file, paste(fmt(nrow(cur)), "measured tiles"))
+
+  # --- web map data -------------------------------------------------------------
+  write_map_data(cur, epochs, cov, map_dir)
 }

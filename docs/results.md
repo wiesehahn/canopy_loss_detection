@@ -12,6 +12,8 @@
 
 ![Canopy lost per tile](images/results_loss.png)
 
+Every tile's figures: [interactive map](https://wiesehahn.github.io/canopy_loss_detection/map/).
+
 ## By year
 
 Year of the first survey that shows the loss.

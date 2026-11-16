@@ -41,6 +41,7 @@ The thresholds were chosen and checked against later lidar surveys that the dete
 | Tile table | Per tile: forest area, lost area, loss per year, number of lost trees (in all, per year and per species), and which surveys were used |
 | Results | [`docs/results.md`](docs/results.md): lost area and trees so far, per year and species |
 | Status | [`docs/status.md`](docs/status.md): how far processing is, and which survey years can show a loss |
+| Web map | [Interactive map](https://wiesehahn.github.io/canopy_loss_detection/map/) ([`docs/map/`](docs/map/)): area lost per tile, and a tile's figures on click |
 
 A loss can only be dated to the time between two surveys: after the last flight that still saw the canopy, and by the first flight that shows it gone. A cell with an earliest year of 2018 and a loss year of 2022 lost its canopy at some point between those two flights.
 

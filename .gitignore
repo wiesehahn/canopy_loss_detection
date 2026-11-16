@@ -5,7 +5,7 @@
 .Ruserdata
 
 # derived geodata, all of it rebuilt by the scripts
-data/
+/data/
 *.tif
 *.vrt
 *.gpkg

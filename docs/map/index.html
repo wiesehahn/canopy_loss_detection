@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Canopy loss · Lower Saxony</title>
+  <meta name="description" content="Canopy lost per 1 km² tile in Lower Saxony, from LGLN's repeated surface models.">
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@6.18.0/dist/maplibre-gl.css">
+  <style>
+    :root {
+      --surface: #fff;
+      --border: rgba(0, 0, 0, .10);
+      --text: #1a1a1a;
+      --muted: rgba(0, 0, 0, .50);
+      --radius: 8px;
+      --shadow: 0 2px 12px rgba(0, 0, 0, .15);
+      --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    }
+    html, body { margin: 0; height: 100%; background: #f2f2f2; color: var(--text); font: 13px/1.4 var(--font); }
+    #map { position: absolute; inset: 0; }
+    .box {
+      position: absolute; z-index: 2; background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); box-shadow: var(--shadow); padding: 10px 12px;
+    }
+    h1 { font-size: 15px; font-weight: 600; margin: 0; }
+    h2 { font-size: 12px; font-weight: 600; margin: 14px 0 6px; }
+    .muted { color: var(--muted); }
+    a { color: inherit; }
+
+    #title { top: 10px; left: 10px; max-width: 300px; }
+    #title p { margin: 2px 0 0; }
+
+    #legend { bottom: 30px; left: 10px; }
+    #legend { width: 210px; }
+    #legend .ramp { height: 10px; border-radius: 2px; border: 1px solid rgba(0, 0, 0, .08); }
+    #legend .ticks { position: relative; height: 16px; margin: 0 6px; font-size: 11px; font-variant-numeric: tabular-nums; }
+    #legend .ticks span { position: absolute; top: 2px; transform: translateX(-50%); white-space: nowrap; }
+    #legend .note { margin-top: 6px; }
+
+    #panel { top: 10px; right: 10px; width: 290px; max-height: calc(100% - 60px); overflow: auto; display: none; }
+    #panel.open { display: block; }
+    #panel .close { position: absolute; top: 6px; right: 8px; border: 0; background: none; font-size: 18px; line-height: 1; cursor: pointer; color: var(--muted); }
+    #panel table { border-collapse: collapse; width: 100%; }
+    #panel td { padding: 2px 0; }
+    #panel td + td { text-align: right; font-variant-numeric: tabular-nums; }
+    .sp { display: grid; grid-template-columns: 92px 1fr 48px; align-items: center; gap: 6px; height: 16px; }
+    .sp .bar { height: 9px; border-radius: 2px; }
+    .sp span:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+
+    .tip .maplibregl-popup-content {
+      font: 12px/1.35 var(--font); padding: 5px 9px; border-radius: 6px;
+      border: 1px solid var(--border); box-shadow: 0 2px 10px rgba(0, 0, 0, .15);
+    }
+    .tip .maplibregl-popup-tip { display: none; }
+
+    @media (max-width: 640px) {
+      #title { right: 10px; max-width: none; }
+      #title p { display: none; }
+      #panel { top: auto; bottom: 0; left: 0; right: 0; width: auto; max-height: 55%; border-radius: 14px 14px 0 0; }
+      #legend { bottom: 30px; }
+    }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+
+  <div id="title" class="box">
+    <h1>Canopy loss in Lower Saxony</h1>
+    <p class="muted">Area lost per 1 km² tile, from LGLN's repeated lidar and photogrammetric surface models.
+      Click a tile for details. <a href="https://github.com/wiesehahn/canopy_loss_detection">Method and data</a></p>
+  </div>
+
+  <div id="legend" class="box" aria-label="Legend"></div>
+
+  <aside id="panel" class="box" aria-live="polite">
+    <button class="close" aria-label="Close" title="Close">×</button>
+    <div id="panel-body"></div>
+  </aside>
+
+  <script type="module">
+    import * as maplibregl from "https://unpkg.com/maplibre-gl@6.18.0/dist/maplibre-gl.mjs";
+
+    const STYLE = "https://sgx.geodatenzentrum.de/gdz_basemapde_vektor/styles/bm_web_gry.json";
+
+    // The area lost per tile on a continuous scale, interpolated in Lab between
+    // these stops (ha). Near white for little loss, so tiles with hardly any
+    // forest stay quiet; dark only for the heaviest losses (40 ha is about the
+    // top 0.5 % of tiles). The layer is multiplied onto the basemap, so roads
+    // and places show through.
+    const STOPS = [[0, "#fffdf8"], [0.5, "#fef3d2"], [2, "#fdc57c"], [5, "#f2804f"],
+                   [12, "#c23d5d"], [25, "#6e1b63"], [40, "#2b0a3d"]];
+    const BAR = "#555";
+    // Why a tile was not measured (other.csv).
+    const WHY = { s: "fewer than two usable surveys", t: "no terrain model (DGM1)", p: "not processed yet" };
+
+    const nf = new Intl.NumberFormat("en", { maximumFractionDigits: 0 });
+    const nf1 = new Intl.NumberFormat("en", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+    const ha = m2 => nf1.format(m2 / 1e4) + " ha";
+    const pct = (a, b) => b > 0 ? nf1.format(100 * a / b) + " %" : "–";
+
+    // EPSG:25832 (UTM 32N, GRS80) to longitude/latitude. Krüger's series to n⁴,
+    // well below a millimetre in Lower Saxony; replaces proj4 for this one
+    // projection. Tiles sharing a corner compute the same point, so the grid has
+    // no gaps.
+    const utm32 = (() => {
+      const a = 6378137, f = 1 / 298.257222101, k0 = 0.9996, lon0 = 9 * Math.PI / 180;
+      const n = f / (2 - f), n2 = n * n, n3 = n2 * n, n4 = n3 * n;
+      const A = a / (1 + n) * (1 + n2 / 4 + n4 / 64);
+      const beta = [n / 2 - 2 / 3 * n2 + 37 / 96 * n3 - n4 / 360, n2 / 48 + n3 / 15 - 437 / 1440 * n4,
+                    17 / 480 * n3 - 37 / 840 * n4, 4397 / 161280 * n4];
+      const delta = [2 * n - 2 / 3 * n2 - 2 * n3 + 116 / 45 * n4, 7 / 3 * n2 - 8 / 5 * n3 - 227 / 45 * n4,
+                     56 / 15 * n3 - 136 / 35 * n4, 4279 / 630 * n4];
+      return (x, y) => {
+        const xi = y / (k0 * A), eta = (x - 500000) / (k0 * A);
+        let xp = xi, ep = eta;
+        for (let j = 1; j <= 4; j++) {
+          xp -= beta[j - 1] * Math.sin(2 * j * xi) * Math.cosh(2 * j * eta);
+          ep -= beta[j - 1] * Math.cos(2 * j * xi) * Math.sinh(2 * j * eta);
+        }
+        const chi = Math.asin(Math.sin(xp) / Math.cosh(ep));
+        let phi = chi;
+        for (let j = 1; j <= 4; j++) phi += delta[j - 1] * Math.sin(2 * j * chi);
+        const lam = lon0 + Math.atan2(Math.sinh(ep), Math.cos(xp));
+        return [lam * 180 / Math.PI, phi * 180 / Math.PI];
+      };
+    })();
+
+    // A CSV without quoted fields, as scripts/write_reports.R writes it.
+    async function csv(url) {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`${url}: ${res.status}`);
+      const [head, ...lines] = (await res.text()).trim().split("\n");
+      const cols = head.split(",");
+      return lines.map(l => Object.fromEntries(l.split(",").map((v, i) => [cols[i], v])));
+    }
+    // "2018:23775;2022:104763" -> [["2018", 23775], ["2022", 104763]]
+    const pairs = s => s ? s.split(";").map(kv => { const i = kv.lastIndexOf(":"); return [kv.slice(0, i), +kv.slice(i + 1)]; }) : [];
+
+    // The tile's square from its ID: lower-left corner in km (R/tiles.R).
+    function tiles(rows) {
+      return {
+        type: "FeatureCollection",
+        features: rows.map(r => {
+          const x = +r.tile_id.slice(2, 5) * 1000, y = +r.tile_id.slice(5, 9) * 1000;
+          const ring = [[x, y], [x + 1000, y], [x + 1000, y + 1000], [x, y + 1000], [x, y]].map(p => utm32(...p));
+          return { type: "Feature", id: +r.tile_id,
+                   properties: r.why ? { why: r.why } : { loss_m2: +r.loss_m2 },
+                   geometry: { type: "Polygon", coordinates: [ring] } };
+        })
+      };
+    }
+
+    // Both start while the basemap loads. The tiles not measured are drawn
+    // transparent, only to say on hover and click why.
+    const lossData = Promise.all([csv("data/loss.csv"), csv("data/other.csv")]);
+    let lossM2 = null, other = null, details = null, species = null;
+
+    const map = new maplibregl.Map({
+      container: "map",
+      style: STYLE,
+      center: [9.2, 52.75], zoom: 6.8,
+      minZoom: 6, maxZoom: 16, maxPitch: 0, dragRotate: false,
+      maxBounds: [[4.5, 50.6], [13.8, 54.9]],
+      hash: true,
+      attributionControl: false
+    });
+    map.touchZoomRotate.disableRotation();
+    // Attribution first: controls added later go above it, as in diversa-map.
+    map.addControl(new maplibregl.AttributionControl({
+      compact: true,
+      customAttribution: 'Data: <a href="https://ni-lgln-opengeodata.hub.arcgis.com/">LGLN</a> (dl-de/by-2-0) · ' +
+                         '<a href="https://github.com/wiesehahn/canopy_loss_detection">canopy_loss_detection</a>'
+    }), "bottom-right");
+    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
+    // Start as the "i" button only. MapLibre opens the compact attribution
+    // once the sources bring their text, so close it that one time.
+    {
+      const attrib = document.querySelector(".maplibregl-ctrl-attrib");
+      const once = new MutationObserver(() => {
+        if (!attrib.classList.contains("maplibregl-compact-show")) return;
+        attrib.classList.remove("maplibregl-compact-show");
+        attrib.removeAttribute("open");
+        once.disconnect();
+      });
+      once.observe(attrib, { attributes: true, attributeFilter: ["class"] });
+    }
+
+    // Legend
+    // The stops evenly spaced along the bar, as the scale is steeper at the low end.
+    const at = i => 100 * i / (STOPS.length - 1);
+    document.getElementById("legend").innerHTML =
+      `<h2 style="margin-top:0">Area lost per tile (ha)</h2>` +
+      `<div class="ramp" style="background:linear-gradient(to right,${STOPS.map(([, c], i) => `${c} ${at(i)}%`).join(",")})"></div>` +
+      `<div class="ticks">${STOPS.map(([v], i) =>
+        `<span style="left:${at(i)}%">${i === STOPS.length - 1 ? "≥ " + v : v}</span>`).join("")}</div>` +
+      `<div class="note muted">No colour: not measured</div>`;
+
+    map.on("load", async () => {
+      const [rows, oth] = await lossData;
+      lossM2 = new Map(rows.map(r => [+r.tile_id, +r.loss_m2]));
+      other = new Map(oth.map(r => [+r.tile_id, r]));
+      const fc = tiles(rows.concat(oth));
+      const firstLabel = map.getStyle().layers.find(l => l.type === "symbol")?.id;
+      const measured = ["!", ["has", "why"]];
+      const color = ["case", measured,
+                     ["interpolate-lab", ["linear"], ["get", "loss_m2"], ...STOPS.flatMap(([v, c]) => [v * 1e4, c])],
+                     "rgba(0,0,0,0)"];
+
+      // 3D buildings draw nothing on a map that cannot tilt, but still cost.
+      for (const l of map.getStyle().layers)
+        if (l.type === "fill-extrusion") map.removeLayer(l.id);
+
+      // Cut into vector tiles up to zoom 10 only (default 18), deeper zooms
+      // reuse them: enough for 1 km squares, and zooming in no longer keeps
+      // the workers from the basemap's tiles.
+      map.addSource("tiles", { type: "geojson", data: fc, maxzoom: 10, buffer: 4 });
+      map.addLayer({ id: "tiles-fill", type: "fill", source: "tiles",
+                     paint: { "fill-color": color, "fill-layer-blend": "multiply" } }, firstLabel);
+      map.addLayer({ id: "tiles-grid", type: "line", source: "tiles", minzoom: 10, filter: measured,
+                     paint: { "line-color": "rgba(0,0,0,.18)", "line-width": 0.5 } }, firstLabel);
+      // Hover and selection by feature state: a paint update only, unlike a
+      // filter, which has the worker lay the tiles out again on every move.
+      const state = k => ["boolean", ["feature-state", k], false];
+      map.addLayer({ id: "tiles-outline", type: "line", source: "tiles",
+                     paint: { "line-color": "#1a1a1a",
+                              "line-width": ["case", state("selected"), 2.5, state("hover"), 1.2, 0] } });
+
+      // The details for hover and click, after the map shows.
+      const [d, s] = await Promise.all([csv("data/details.csv"), csv("data/species.csv")]);
+      details = new Map(d.map(r => [+r.tile_id, r]));
+      species = new Map(s.map(r => [r.name, r.colour]));
+      if (selected != null) show(selected);
+    });
+
+    // Hover
+    const tip = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 12, className: "tip" });
+    const mark = (id, key, on) => id != null && map.setFeatureState({ source: "tiles", id }, { [key]: on });
+    let hovered = null;
+    map.on("mousemove", "tiles-fill", e => {
+      const f = e.features[0];
+      tip.setLngLat(e.lngLat);
+      if (f.id === hovered) return;  // same tile: only the tooltip follows
+      mark(hovered, "hover", false);
+      mark(hovered = f.id, "hover", true);
+      map.getCanvas().style.cursor = "pointer";
+      const d = details?.get(f.id), why = f.properties.why;
+      tip.setHTML(why ? `Not measured: ${WHY[why]}` :
+        `<b>${ha(f.properties.loss_m2)}</b> lost` +
+        (d ? ` · ${pct(+d.loss_forest_m2, +d.forest_m2)} of the canopy` : "")).addTo(map);
+    });
+    map.on("mouseleave", "tiles-fill", () => {
+      map.getCanvas().style.cursor = "";
+      mark(hovered, "hover", false);
+      hovered = null;
+      tip.remove();
+    });
+
+    // Click
+    const panel = document.getElementById("panel");
+    const body = document.getElementById("panel-body");
+    let selected = null;
+    map.on("click", e => {
+      const f = map.queryRenderedFeatures(e.point, { layers: ["tiles-fill"] })[0];
+      if (f) show(f.id); else close();
+    });
+    panel.querySelector(".close").onclick = close;
+    document.addEventListener("keydown", e => { if (e.key === "Escape") close(); });
+
+    function close() {
+      mark(selected, "selected", false);
+      selected = null;
+      panel.classList.remove("open");
+    }
+
+    function show(id) {
+      if (id !== selected) mark(selected, "selected", false);
+      mark(selected = id, "selected", true);
+      panel.classList.add("open");
+      const o = other.get(id);
+      if (o) {
+        const ys = o.years.split(" ").filter(Boolean);
+        body.innerHTML = `<h1>Not measured</h1><p>${WHY[o.why][0].toUpperCase() + WHY[o.why].slice(1)}.</p>` +
+          `<table><tr><td class="muted">Usable surveys</td><td>${ys.length ? ys.join(" · ") : "none"}</td></tr></table>` +
+          `<div class="muted" style="margin-top:6px">Loss needs two usable surveys (lidar in any season, ` +
+          `photo-based ones from May to October) and LGLN's terrain model.</div>`;
+        return;
+      }
+      const d = details?.get(id);
+      if (!d) { body.innerHTML = `<h1>${ha(lossM2.get(id))} lost</h1><p class="muted">Loading…</p>`; return; }
+
+      const years = d.years.split(" ").filter(Boolean);
+      const forest = +d.forest_m2, lostForest = +d.loss_forest_m2;
+      const byYear = new Map(pairs(d.loss_by_year));
+      const loss = lossM2.get(id);
+      const rows = [
+        ["Surveys", years.join(" · ")],
+        ["Area observed", d.observed_pct + " %"],
+        ["Canopy at the start", ha(forest)],
+        ["Canopy lost", `${ha(lostForest)} (${pct(lostForest, forest)})`],
+        ["Area lost", ha(loss)],
+        ["Lost trees", nf.format(+d.lost_trees)]
+      ];
+      body.innerHTML =
+        `<h1>${ha(loss)} lost</h1>` +
+        `<table>${rows.map(([k, v]) => `<tr><td class="muted">${k}</td><td>${v}</td></tr>`).join("")}</table>` +
+        `<h2>Area lost per survey (ha)</h2>` + yearBars(years.slice(1), byYear) +
+        `<div class="muted" style="margin-top:4px">The loss is dated to the first survey that shows it.</div>` +
+        speciesBars(pairs(d.trees_by_species));
+    }
+
+    // Loss per survey year, as bars like the species below: every survey that
+    // can show loss, zeros included.
+    function yearBars(years, byYear) {
+      if (!years.length) return `<div class="muted">–</div>`;
+      const v = years.map(y => (byYear.get(y) || 0) / 1e4), max = Math.max(...v);
+      return years.map((y, i) =>
+        `<div class="sp"><span>${y}</span>` +
+        `<span class="bar" style="width:${max > 0 ? 100 * v[i] / max : 0}%;background:${BAR}"></span>` +
+        `<span>${nf1.format(v[i])}</span></div>`).join("");
+    }
+
+    // Share of the lost trees per species, most first, without species under 1 %.
+    function speciesBars(sp) {
+      const all = sp.reduce((s, [, n]) => s + n, 0);
+      sp = sp.filter(([, n]) => 100 * n / all >= 1).sort((a, b) => b[1] - a[1]);
+      if (!sp.length) return "";
+      const max = sp[0][1];
+      return `<h2>Lost trees by species (%)</h2>` + sp.map(([name, n]) =>
+        `<div class="sp"><span>${name === "none" ? "unknown" : name}</span>` +
+        `<span class="bar" style="width:${100 * n / max}%;background:${species.get(name) || "#bbb"}"></span>` +
+        `<span>${nf.format(100 * n / all)}</span></div>`).join("") +
+        `<div class="muted" style="margin-top:4px">Species from the ` +
+        `<a href="https://doi.org/10.25625/XOZAGY" target="_blank" rel="noopener">tree species map of Germany 2018</a>.</div>`;
+    }
+  </script>
+</body>
+</html>
